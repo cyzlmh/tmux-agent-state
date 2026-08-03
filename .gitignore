@@ -1,0 +1,6 @@
+node_modules/
+*.tsbuildinfo
+__pycache__/
+
+# work-in-progress web visualiser, not released yet
+tmux-viz/
