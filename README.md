@@ -12,9 +12,9 @@ tmux-agent-state/
   tsconfig.json        type-check setup for the adapters
   adapters/
     agent-state.sh     shared hook adapter: writes @agent-state from claude/codex events
-    claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/
-                       PermissionRequest/Elicitation/Stop/SessionEnd)
-    codex-hooks.json   codex hook template (same minus Elicitation)
+    claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
+                       PermissionRequest/Elicitation/ElicitationResult/Stop/SessionEnd)
+    codex-hooks.json   codex hook template (same minus Elicitation/ElicitationResult)
     install.sh         merges the hooks into ~/.claude/settings.json / ~/.codex/hooks.json
     pi/
       agent-state.ts   pi extension (implemented)
@@ -90,8 +90,9 @@ is in:
 Chips are pure information (no border/title styling, nothing to reset on
 focus). The window-status formats are extended once by the bootstrap
 (idempotent append — your own format customisation is preserved). The pi
-extension spawns `colorize.sh` after state transitions to refresh chips
-(`TMUX_STATUS_COLORIZE` overrides the path; empty string disables), and the
+extension spawns `colorize.sh` after state transitions — and the blocking
+tools that write state themselves (e.g. `question.ts`) do too — to refresh
+chips (`TMUX_STATUS_COLORIZE` overrides the path; empty string disables), and the
 status segment re-runs it on status-bar redraws (throttled to 15s) — that
 covers staleness and adapter shutdown, which are not transitions and would
 otherwise leave a dead agent's chip stuck at its last colour.

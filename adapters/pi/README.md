@@ -31,8 +31,11 @@ is reliable (no tool-name guessing).
 `question.ts` in this directory is a full-custom-UI example of the contract
 (options list + inline editor, via `ctx.ui.custom()`): it writes `waiting` +
 `detail=asking` before blocking on the user, then restores `busy` + `working`
-in a `finally` block. Load it only if you want asking reporting (it requires
-`agent-state.ts`, which owns the initial state and shutdown cleanup):
+in a `finally` block. Each state write also refreshes the window-label chips
+via colorize.sh (same mechanism as agent-state.ts), so a chip moves
+asking→running→done instead of skipping the brief running state. Load it only
+if you want asking reporting (it requires `agent-state.ts`, which owns the
+initial state and shutdown cleanup):
 
 ```sh
 ln -s ~/tmux-agent-state/adapters/pi/question.ts \

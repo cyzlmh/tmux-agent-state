@@ -32,6 +32,9 @@ import {
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 
 interface OptionWithDesc {
@@ -59,6 +62,25 @@ interface QuestionDetails {
 // This is reliable: the tool itself knows it is waiting for the user.
 
 const QUESTION_FLAG = "__tmuxPanelQuestion";
+
+// Where this extension really lives. jiti loads it as CJS and does NOT resolve
+// symlinks, so when installed via a ~/.pi/agent/extensions symlink __dirname
+// would point at the install dir — realpath fixes that so the relative
+// colorize.sh path resolves into the repo.
+const EXT_DIR: string = path.dirname(
+	fs.realpathSync(
+		typeof __filename !== "undefined"
+			? __filename
+			: fileURLToPath(import.meta.url),
+	),
+);
+
+// Refresh window-label chips on state writes, same path resolution as
+// agent-state.ts: TMUX_STATUS_COLORIZE overrides; empty string disables.
+const COLORIZE =
+	process.env.TMUX_STATUS_COLORIZE !== undefined
+		? process.env.TMUX_STATUS_COLORIZE
+		: path.join(EXT_DIR, "..", "..", "statusbar", "scripts", "colorize.sh");
 
 type QuestionFlag = { active: true; since: number } | undefined;
 
@@ -92,6 +114,20 @@ function writeAgentState(state: "waiting" | "busy", detail: string): void {
 		detail,
 	});
 	tmuxSetState(payload);
+	colorize(); // agent-state.ts only refreshes chips on ITS transitions — this
+	// tool writes outside those transitions, so refresh here too or the chip
+	// would stay on the pre-question colour until the next transition.
+}
+
+// Spawn colorize.sh (same contract as agent-state.ts). Failures are ignored
+// (chips are optional; indicator.py re-refreshes them on status-bar redraws).
+function colorize(): void {
+	if (!COLORIZE) return;
+	const pane = process.env.TMUX_PANE;
+	if (!pane) return;
+	const p = spawn("bash", [COLORIZE, pane], { stdio: "ignore" });
+	p.unref();
+	p.on("error", () => {});
 }
 
 // Options with labels and optional descriptions

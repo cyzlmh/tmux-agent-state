@@ -62,9 +62,9 @@ import json, sys
 path, name = sys.argv[1:3]
 d = json.load(open(path))
 events = set(d["hooks"].keys())
-expected = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop", "SessionEnd"}
+expected = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest", "Stop", "SessionEnd"}
 if name == "claude":
-    expected.add("Elicitation")
+    expected.update({"Elicitation", "ElicitationResult"})
 missing = expected - events
 assert not missing, f"{name}: missing events {missing}"
 for ev, groups in d["hooks"].items():

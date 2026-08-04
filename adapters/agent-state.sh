@@ -72,3 +72,12 @@ esac
 payload=$(printf '{"tool":"%s","state":"%s","ts":%s,"detail":"%s"}' \
     "$agent" "$state" "$(date +%s)" "$detail")
 "${TMUX_CMD[@]}" set-option -p -t "$pane" @agent-state "$payload"
+
+# Refresh window-label chips, same contract as the pi adapter: hooks write
+# outside pi's transitions, so agent-state.ts's colourize() never runs for
+# them — without this the chip stays on its last colour until indicator.py's
+# periodic refresh. TMUX_STATUS_COLORIZE overrides the path; empty disables.
+COLORIZE="${TMUX_STATUS_COLORIZE-$(dirname "$0")/../statusbar/scripts/colorize.sh}"
+if [ -n "$COLORIZE" ] && [ -x "$COLORIZE" ]; then
+    "$COLORIZE" "$pane" >/dev/null 2>&1 &
+fi

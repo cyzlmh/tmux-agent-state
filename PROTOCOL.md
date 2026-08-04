@@ -160,8 +160,8 @@ Payload (single-line JSON):
 | tool        | adapter form                         | events / hooks that map to states                         |
 | ----------- | ------------------------------------ | --------------------------------------------------------- |
 | **pi**      | TypeScript extension (this repo)     | `input`/`agent_start`→busy, `agent_settled`→waiting, blocking tool→waiting/asking |
-| **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
-| **codex**   | `~/.codex/hooks.json` hooks          | `UserPromptSubmit`/`PreToolUse`→busy, `PermissionRequest`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`ElicitationResult`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **codex**   | `~/.codex/hooks.json` hooks          | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`→busy, `PermissionRequest`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
 | **zsh**     | none — `pane_current_command=zsh` ⇒ waiting (tmux fact, exact) | |
 
 All adapters write the **same** `@agent-state` payload, so the reader is

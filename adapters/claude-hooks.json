@@ -9,11 +9,17 @@
     "PreToolUse": [
       { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
     ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
+    ],
     "PermissionRequest": [
       { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking" }] }
     ],
     "Elicitation": [
       { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking" }] }
+    ],
+    "ElicitationResult": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail done" }] }
