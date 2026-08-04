@@ -28,11 +28,11 @@ shows `busy`. For the agent to show up as *asking* (needs-input) instead,
 a blocking tool must report it: the tool itself knows it is waiting, so this
 is reliable (no tool-name guessing).
 
-`question.ts` in this directory is a minimal example of the contract: it
-writes `waiting` + `detail=asking` while its `ctx.ui.select()` blocks on the
-user, then restores `busy` + `working` in a `finally` block. Load it only if
-you want asking reporting (it requires `agent-state.ts`, which owns the
-initial state and shutdown cleanup):
+`question.ts` in this directory is a full-custom-UI example of the contract
+(options list + inline editor, via `ctx.ui.custom()`): it writes `waiting` +
+`detail=asking` before blocking on the user, then restores `busy` + `working`
+in a `finally` block. Load it only if you want asking reporting (it requires
+`agent-state.ts`, which owns the initial state and shutdown cleanup):
 
 ```sh
 ln -s ~/tmux-agent-state/adapters/pi/question.ts \
@@ -71,14 +71,16 @@ No-op when not inside tmux (`$TMUX_PANE` unset).
 ## Type-check
 
 The extensions import types from the globally-installed
-`@earendil-works/pi-coding-agent` (and `typebox`, a transitive dependency).
-A couple of symlinks make `tsc` resolve them without a full npm install:
+`@earendil-works/pi-coding-agent`, plus `typebox` and `@earendil-works/pi-tui`
+(transitive dependencies). A few symlinks make `tsc` resolve them without a
+full npm install:
 
 ```sh
 cd tmux-agent-state
 mkdir -p node_modules/@earendil-works node_modules/@types
 ln -sfh "$(npm root -g)/@earendil-works/pi-coding-agent" node_modules/@earendil-works/pi-coding-agent
 ln -sfh "$(npm root -g)/@earendil-works/pi-coding-agent/node_modules/typebox" node_modules/typebox
+ln -sfh "$(npm root -g)/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui" node_modules/@earendil-works/pi-tui
 ln -sfh "$(npm root -g)/@types/node" node_modules/@types/node
 bunx tsc -p tsconfig.json
 ```
