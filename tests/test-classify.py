@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Unit tests for panel/scripts/indicator.py (pure functions, no tmux)."""
+"""Unit tests for statusbar/scripts/indicator.py (pure functions, no tmux)."""
 import importlib.util
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
-    "indicator", ROOT / "panel" / "scripts" / "indicator.py"
+    "indicator", ROOT / "statusbar" / "scripts" / "indicator.py"
 )
 ind = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ind)
@@ -34,25 +34,29 @@ check(ind.display_state("waiting", "done") == "done", "waiting+done -> done")
 check(ind.display_state("waiting", "ready") is None, "waiting+ready -> not counted")
 check(ind.display_state("waiting", "") is None, "waiting no detail -> not counted")
 
-# --- classify (stale wins) ---
-now = 1718000090.0  # 40s after ts below (within STALE=45s)
-fresh = '{"tool":"pi","state":"busy","ts":1718000050,"detail":"working"}'
-old = '{"tool":"pi","state":"busy","ts":1718000000,"detail":"working"}'
-check(ind.classify(fresh, now) == "running", "fresh busy -> running")
-check(ind.classify(old, now) == "stale", "old busy -> stale")
+# --- classify: stale by process presence (shell foreground), not by ts ---
+done = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'   # ancient ts, still fine
+busy = '{"tool":"pi","state":"busy","ts":1,"detail":"working"}'
+check(ind.classify(done, "zsh") == "stale", "shell foreground -> stale")
+check(ind.classify(done, "-zsh") == "stale", "login shell (-zsh) -> stale")
+check(ind.classify(done, "bash") == "stale", "bash -> stale")
+check(ind.classify(done, "node") == "done", "agent process (node) -> trust state")
+check(ind.classify(done, "claude") == "done", "agent process (claude) -> trust state")
+check(ind.classify(busy, "claude") == "running", "busy + process -> running")
+check(ind.classify("", "node") is None, "no state -> None regardless of process")
 
 # --- count_stats / render_stats ---
 entries = [
-    '{"tool":"pi","state":"waiting","ts":1718000050,"detail":"asking"}',
-    '{"tool":"pi","state":"waiting","ts":1718000050,"detail":"done"}',
-    '{"tool":"pi","state":"waiting","ts":1718000050,"detail":"done"}',
-    '{"tool":"pi","state":"busy","ts":1718000050,"detail":"working"}',
-    '{"tool":"pi","state":"waiting","ts":1718000000,"detail":"done"}',  # stale
-    '{"tool":"pi","state":"waiting","ts":1718000050,"detail":"ready"}',  # not counted
-    "garbage",
-    "",
+    ('{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}', "claude"),
+    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "claude"),
+    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "claude"),
+    ('{"tool":"pi","state":"busy","ts":1,"detail":"working"}', "codex"),
+    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "zsh"),   # shell -> stale
+    ('{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}', "claude"),  # not counted
+    ("garbage", "claude"),
+    ("", "claude"),
 ]
-counts = ind.count_stats(entries, now)
+counts = ind.count_stats(entries)
 check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1}, f"counts: {counts}")
 
 r = ind.render_stats(counts, ind.DEFAULT_COLORS)

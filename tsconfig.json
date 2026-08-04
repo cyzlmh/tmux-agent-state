@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "strict": true
   },
-  "include": ["pi/**/*.ts"]
+  "include": ["adapters/pi/**/*.ts"]
 }

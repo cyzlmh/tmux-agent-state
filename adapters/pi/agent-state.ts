@@ -2,15 +2,15 @@
  * pi extension: report agent state + last interaction I/O to tmux-agent-state.
  *
  * Writes two tmux pane-scoped user options (see ../PROTOCOL.md):
- *   @agent-state  {tool, state, ts, since, detail}     (waiting/busy, on transition + heartbeat)
+ *   @agent-state  {tool, state, ts, since, detail}     (waiting/busy, on transitions only)
  *   @agent-io      {input, output, ts}                  (last user input + last assistant output, per turn)
  *
- * Load (dev):   pi --extension ./pi/agent-state.ts   (from the repo root)
+ * Load (dev):   pi --extension ./adapters/pi/agent-state.ts   (from the repo root)
  * Load (installed): symlink into ~/.pi/agent/extensions/ then /reload
  *
  * Config (env):
- *   TMUX_PANEL_IO_MAX_OUT    max chars of captured output (default 4000)
- *   TMUX_PANEL_IO_MAX_IN     max chars of captured input  (default 500)
+ *   TMUX_STATUS_IO_MAX_OUT    max chars of captured output (default 4000)
+ *   TMUX_STATUS_IO_MAX_IN     max chars of captured input  (default 500)
  *
  * Reliability: state is driven only by deterministic events (input /
  * agent_start -> busy, agent_settled -> waiting). There is deliberately NO
@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 // Where this extension really lives. jiti loads it as CJS and does NOT
 // resolve symlinks, so when installed via ~/.pi/agent/extensions/agent-state.ts
 // (a symlink) __dirname would point at the install dir — realpath fixes that
-// so relative paths (../panel/...) resolve into the repo.
+// so relative paths (../../statusbar/...) resolve into the repo.
 const EXT_DIR: string = path.dirname(
   fs.realpathSync(
     typeof __filename !== "undefined"
@@ -37,24 +37,22 @@ const EXT_DIR: string = path.dirname(
 );
 
 // Optional: colorize.sh applies pane-border / window-title colors from
-// @agent-state. Only spawned on state *transitions*. Set TMUX_PANEL_COLORIZE
+// @agent-state. Only spawned on state *transitions*. Set TMUX_STATUS_COLORIZE
 // to a different path, or to an empty string to disable coloring.
-const COLORIZE = process.env.TMUX_PANEL_COLORIZE !== undefined
-    ? process.env.TMUX_PANEL_COLORIZE
-    : path.join(EXT_DIR, "..", "panel", "scripts", "colorize.sh");
+const COLORIZE = process.env.TMUX_STATUS_COLORIZE !== undefined
+    ? process.env.TMUX_STATUS_COLORIZE
+    : path.join(EXT_DIR, "..", "..", "statusbar", "scripts", "colorize.sh");
 const OPTION = "@agent-state";
 const OPTION_IO = "@agent-io";
 const TOOL = "pi";
-const HEARTBEAT_MS = 15_000;
-const MAX_IN = Number(process.env.TMUX_PANEL_IO_MAX_IN ?? 500);
-const MAX_OUT = Number(process.env.TMUX_PANEL_IO_MAX_OUT ?? 4000);
+const MAX_IN = Number(process.env.TMUX_STATUS_IO_MAX_IN ?? 500);
+const MAX_OUT = Number(process.env.TMUX_STATUS_IO_MAX_OUT ?? 4000);
 
 type State = "waiting" | "busy";
 
 // Shared flag with the question tool extension (same pi process): while the
 // question tool blocks on user input it sets __tmuxPanelQuestion and writes
-// waiting/asking; our heartbeat must preserve that instead of overwriting it
-// with busy (ts keeps refreshing, so the reader sees a live "asking").
+// waiting/asking; writeState reflects that instead of our in-memory busy.
 type QuestionFlag = { active: true; since: number } | undefined;
 
 function questionFlag(): QuestionFlag {
@@ -109,7 +107,6 @@ export default function agentState(pi: ExtensionAPI): void {
   let state: State | null = null;
   let detail = "";
   let since = Date.now();
-  let hb: ReturnType<typeof setInterval> | null = null;
 
   // last interaction I/O
   let lastInput = "";
@@ -168,17 +165,7 @@ export default function agentState(pi: ExtensionAPI): void {
     colorize();
   }
 
-  function startHeartbeat(): void {
-    if (hb) return;
-    hb = setInterval(writeState, HEARTBEAT_MS);
-    hb.unref();
-  }
-
   function clear(): void {
-    if (hb) {
-      clearInterval(hb);
-      hb = null;
-    }
     state = null;
     detail = "";
     lastInput = "";
@@ -190,7 +177,6 @@ export default function agentState(pi: ExtensionAPI): void {
   // --- state (deterministic events only) ---
 
   pi.on("session_start", () => {
-    startHeartbeat();
     set("waiting", "ready");
   });
 

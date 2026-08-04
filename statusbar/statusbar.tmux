@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# tmux-agent-state bootstrap: interpolate #{agent_panel} into the status bar
+# tmux-agent-state bootstrap: interpolate #{agent_status} into the status bar
 # and set up the window-status formats that render per-agent colour chips.
 #
-# Usage: add '#{agent_panel}' to a status option, then load once per server:
+# Usage: add '#{agent_status}' to a status option, then load once per server:
 #
-#   set -g status-right '#{agent_panel} | %H:%M'
-#   tmux run-shell "$HOME/tmux-agent-state/panel/agent-panel.tmux"
+#   set -g status-right '#{agent_status} | %H:%M'
+#   tmux run-shell "$HOME/tmux-agent-state/statusbar/statusbar.tmux"
 #
 # (or add the run-shell line to ~/.tmux.conf). Idempotent: the placeholder
 # is replaced on first load, so re-running does not double-interpolate.
 #
 # window-status-format / window-status-current-format are only set when the
 # user has not customised them; the default is extended with
-# #{@agent-panel-chips} (one colour chip per agent pane, see colorize.sh).
+# #{@agent-status-chips} (one colour chip per agent pane, see colorize.sh).
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INDICATOR="$CURRENT_DIR/scripts/indicator.py"
 
 interpolate() {
     local string="$1"
-    string="${string//\#\{agent_panel\}/#(python3 \"$INDICATOR\")}"
+    string="${string//\#\{agent_status\}/#(python3 \"$INDICATOR\")}"
     echo "$string"
 }
 
@@ -34,14 +34,14 @@ update_option() {
 }
 
 # Extend the window-label formats with the chips segment. Idempotent: if
-# the format already carries #{@agent-panel-chips}, leave it untouched;
+# the format already carries #{@agent-status-chips}, leave it untouched;
 # otherwise append (preserving any user-customised format).
 ensure_window_status_formats() {
     local opt v
     for opt in window-status-format window-status-current-format; do
         v=$(tmux show-option -gqv "$opt")
-        if [[ "$v" != *"@agent-panel-chips"* ]]; then
-            tmux set-option -gq "$opt" "${v}#{@agent-panel-chips}"
+        if [[ "$v" != *"@agent-status-chips"* ]]; then
+            tmux set-option -gq "$opt" "${v}#{@agent-status-chips}"
         fi
     done
 }

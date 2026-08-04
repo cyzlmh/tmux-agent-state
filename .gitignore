@@ -1,6 +1,7 @@
 node_modules/
 *.tsbuildinfo
 __pycache__/
+.DS_Store
 
 # work-in-progress web visualiser, not released yet
 tmux-viz/

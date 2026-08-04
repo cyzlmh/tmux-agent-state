@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent codex --state waiting --detail ready" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent codex --state busy --detail working" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent codex --state busy --detail working" }] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent codex --state waiting --detail asking" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent codex --state waiting --detail done" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --clear" }] }
+    ]
+  }
+}

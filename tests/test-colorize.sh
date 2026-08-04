@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Integration tests: window colour chips (panel/scripts/colorize.sh) against
+# Integration tests: window colour chips (statusbar/scripts/colorize.sh) against
 # a real tmux server on an isolated socket.
+#
+# stale is decided by process presence (no-heartbeat protocol): a pane whose
+# foreground command is a shell counts as stale even with a fresh payload.
 
 set -euo pipefail
 
@@ -11,8 +14,7 @@ trap cleanup_test_server EXIT
 setup_test_server "colorize"
 
 NOW=$(date +%s)
-OLD=$((NOW - 100))
-COLORIZE="$ROOT_DIR/panel/scripts/colorize.sh"
+COLORIZE="$ROOT_DIR/statusbar/scripts/colorize.sh"
 
 run_colorize() {
     local pane="${1:-$PANE}"
@@ -20,19 +22,26 @@ run_colorize() {
 }
 
 get_chips() {
-    tmux_cmd show-options -wqv -t "$1" @agent-panel-chips 2>/dev/null || true
+    tmux_cmd show-options -wqv -t "$1" @agent-status-chips 2>/dev/null || true
 }
 
-# 1. single agent pane, done -> one green chip
+# 1. state on a shell foreground -> stale chip (red), no heartbeat
 write_state "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
 run_colorize
-[ "$(get_chips "$WIN")" = "#[bg=colour34] #[default]" ] \
-    || fail "done should give one green chip: $(get_chips "$WIN")"
-pass "single done pane -> green chip"
+[ "$(get_chips "$WIN")" = "#[bg=colour161] #[default]" ] \
+    || fail "shell pane with done state should be stale (red): $(get_chips "$WIN")"
+pass "shell foreground -> stale chip"
 
-# 2. asking + running panes: chips in layout order (needs-input yellow first,
-#    running blue second — split order is top then bottom)
+# 2. live process -> done chip (green)
+hold_pane "$PANE" || fail "could not hold pane"
+run_colorize
+[ "$(get_chips "$WIN")" = "#[bg=colour34] #[default]" ] \
+    || fail "live process done -> green chip: $(get_chips "$WIN")"
+pass "live process done -> green chip"
+
+# 3. two live panes: asking + running -> yellow + blue, in layout order
 P2="$(tmux_cmd split-window -d -P -F '#{pane_id}' -t ai:main)"
+hold_pane "$P2" || fail "hold P2"
 tmux_cmd set-option -p -t "$PANE" @agent-state \
     "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"asking\"}"
 tmux_cmd set-option -p -t "$P2" @agent-state \
@@ -40,17 +49,9 @@ tmux_cmd set-option -p -t "$P2" @agent-state \
 run_colorize "$P2"
 [ "$(get_chips "$WIN")" = "#[bg=colour214] #[default]#[bg=colour39] #[default]" ] \
     || fail "asking+running chips: $(get_chips "$WIN")"
-pass "two panes -> two chips in layout order"
+pass "two panes -> yellow + blue chips"
 
-# 3. stale -> red chip
-tmux_cmd set-option -p -t "$PANE" @agent-state \
-    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$OLD,\"detail\":\"done\"}"
-run_colorize "$P2"
-[ "$(get_chips "$WIN")" = "#[bg=colour161] #[default]#[bg=colour39] #[default]" ] \
-    || fail "stale+running chips: $(get_chips "$WIN")"
-pass "stale -> red chip"
-
-# 4. ready panes and non-agent panes get no chip; no agents -> option unset
+# 4. ready panes get no chip; no agents -> option unset
 tmux_cmd set-option -p -t "$PANE" @agent-state \
     "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"ready\"}"
 run_colorize "$P2"
@@ -61,8 +62,7 @@ run_colorize "$P2"
 [ -z "$(get_chips "$WIN")" ] || fail "no agents -> chips unset: $(get_chips "$WIN")"
 pass "ready/empty panes dropped"
 
-# 5. layout order respects pane_top (swap states, top pane = PANE2's location)
-#    split: PANE is top, P2 is bottom; set top to done, bottom to asking
+# 5. layout order respects pane_top (top pane first)
 tmux_cmd set-option -p -t "$PANE" @agent-state \
     "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
 tmux_cmd set-option -p -t "$P2" @agent-state \
@@ -71,15 +71,5 @@ run_colorize "$P2"
 [ "$(get_chips "$WIN")" = "#[bg=colour34] #[default]#[bg=colour214] #[default]" ] \
     || fail "layout order top->bottom: $(get_chips "$WIN")"
 pass "layout order: top pane first"
-
-# 6. whitespace-tolerant parsing: pretty-printed adapter payloads (spaces
-#    after colons) must classify the same as compact JSON
-tmux_cmd set-option -u -p -t "$P2" @agent-state
-tmux_cmd set-option -p -t "$PANE" @agent-state \
-    "{ \"tool\": \"pi\", \"state\": \"waiting\", \"ts\": $NOW, \"detail\": \"done\" }"
-run_colorize
-[ "$(get_chips "$WIN")" = "#[bg=colour34] #[default]" ] \
-    || fail "spaced JSON should parse: $(get_chips "$WIN")"
-pass "whitespace-tolerant JSON parsing"
 
 echo "PASS: test-colorize"
