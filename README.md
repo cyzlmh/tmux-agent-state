@@ -1,6 +1,7 @@
 # tmux-agent-state
 
-Let CLI agents running in tmux panes (pi / claude code / codex) report whether
+Let CLI agents running in tmux panes (pi / claude code / codex / kimi code)
+report whether
 they are **waiting for user input** or **busy**, so an external visualiser /
 monitor does not have to guess from screen content.
 
@@ -15,7 +16,10 @@ tmux-agent-state/
     claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PermissionRequest/Elicitation/ElicitationResult/Stop/SessionEnd)
     codex-hooks.json   codex hook template (same minus Elicitation/ElicitationResult)
-    install.sh         merges the hooks into ~/.claude/settings.json / ~/.codex/hooks.json
+    kimi-hooks.toml    kimi hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
+                       PermissionRequest/PermissionResult/Stop/StopFailure/Interrupt/SessionEnd)
+    install.sh         merges the hooks into ~/.claude/settings.json / ~/.codex/hooks.json /
+                       ~/.kimi-code/config.toml
     pi/
       agent-state.ts   pi extension (implemented)
       question.ts      optional example: asking reporting for blocking tools
@@ -50,8 +54,8 @@ tmux run-shell ~/tmux-agent-state/statusbar/statusbar.tmux
 ln -s ~/tmux-agent-state/adapters/pi/agent-state.ts ~/.pi/agent/extensions/agent-state.ts
 # optional: also symlink question.ts for asking reporting (see adapters/pi/README.md)
 
-# 3. claude/codex adapters (optional): merges hooks into their configs
-~/tmux-agent-state/adapters/install.sh          # both, or: install.sh claude | install.sh codex
+# 3. claude/codex/kimi adapters (optional): merges hooks into their configs
+~/tmux-agent-state/adapters/install.sh          # all, or: install.sh claude | codex | kimi
 # after installing codex hooks: run /hooks inside codex and trust them
 ```
 
@@ -120,6 +124,7 @@ waiting/asking while it blocks on the user (see
 | pi      | TS extension (`adapters/pi/agent-state.ts`) | done, e2e verified |
 | claude  | hooks (`adapters/claude-hooks.json`) | done — `adapters/install.sh claude` |
 | codex   | hooks (`adapters/codex-hooks.json`) | done — `adapters/install.sh codex`, then trust in `/hooks` |
+| kimi    | hooks (`adapters/kimi-hooks.toml`) | done — `adapters/install.sh kimi` |
 | zsh     | none (`pane_current_command` ⇒ waiting, exact) | n/a |
 
 ## Verify

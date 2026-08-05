@@ -23,8 +23,8 @@
 #
 #   colorize.sh [pane_id]    refresh chips for pane's window
 #
-# Called by adapters after state transitions (the pi extension; claude/codex
-# hooks will too), and periodically by indicator.py on status-bar redraws —
+# Called by adapters after state transitions (the pi extension; claude/codex/
+# kimi hooks will too), and periodically by indicator.py on status-bar redraws —
 # staleness and adapter shutdown (option cleared) are not transitions, so
 # without the periodic trigger a dead agent's chip would keep its last colour
 # forever.

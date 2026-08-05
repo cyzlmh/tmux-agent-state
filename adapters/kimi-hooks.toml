@@ -1,0 +1,53 @@
+# tmux-agent-state adapter for kimi code (https://www.kimi.com/code).
+#
+# install.sh appends this to ~/.kimi-code/config.toml (replacing
+# __AGENT_STATE__ with the absolute path of adapters/agent-state.sh), so the
+# same shared hook script that serves claude/codex writes @agent-state for
+# kimi too. Event reference:
+# https://www.kimi.com/code/docs/en/kimi-code-cli/customization/hooks.html
+
+[[hooks]]
+event = "SessionStart"
+command = "__AGENT_STATE__ --agent kimi --state waiting --detail ready"
+
+[[hooks]]
+event = "UserPromptSubmit"
+command = "__AGENT_STATE__ --agent kimi --state busy --detail working"
+
+# NOTE: TurnStarted (kimi >= 0.32) also covers turns with no user prompt
+# (background tasks, goals, cron). It is deliberately not used here: one
+# unknown event makes kimi reject the whole hooks key, and PreToolUse below
+# still flips such turns to busy on the first tool call.
+
+[[hooks]]
+event = "PreToolUse"
+command = "__AGENT_STATE__ --agent kimi --state busy --detail working"
+
+[[hooks]]
+event = "PostToolUse"
+command = "__AGENT_STATE__ --agent kimi --state busy --detail working"
+
+[[hooks]]
+event = "PermissionRequest"
+command = "__AGENT_STATE__ --agent kimi --state waiting --detail asking"
+
+[[hooks]]
+event = "PermissionResult"
+command = "__AGENT_STATE__ --agent kimi --state busy --detail working"
+
+[[hooks]]
+event = "Stop"
+command = "__AGENT_STATE__ --agent kimi --state waiting --detail done"
+
+# the turn ended without Stop: error or Esc — the agent is idle either way
+[[hooks]]
+event = "StopFailure"
+command = "__AGENT_STATE__ --agent kimi --state waiting --detail done"
+
+[[hooks]]
+event = "Interrupt"
+command = "__AGENT_STATE__ --agent kimi --state waiting --detail done"
+
+[[hooks]]
+event = "SessionEnd"
+command = "__AGENT_STATE__ --clear"

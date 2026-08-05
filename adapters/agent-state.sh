@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# tmux-agent-state adapter for hook-based agents (claude code / codex).
+# tmux-agent-state adapter for hook-based agents (claude code / codex / kimi code).
 #
 # Writes the @agent-state pane option from agent lifecycle events, exactly
 # like adapters/pi/agent-state.ts but invoked from shell hooks (see claude-hooks.json
-# / codex-hooks.json; install.sh wires them up). No heartbeat (PROTOCOL.md):
+# / codex-hooks.json / kimi-hooks.toml; install.sh wires them up). No heartbeat (PROTOCOL.md):
 # the reader decides liveness from the pane foreground command, so hooks only
 # write on real state transitions.
 #

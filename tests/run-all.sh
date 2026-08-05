@@ -16,7 +16,7 @@ echo "==> integration: status segment on isolated tmux socket"
 echo "==> integration: state coloring on isolated tmux socket"
 "$ROOT_DIR/tests/test-colorize.sh"
 
-echo "==> integration: hook-based adapters (claude/codex)"
+echo "==> integration: hook-based adapters (claude/codex/kimi)"
 "$ROOT_DIR/tests/test-agent.sh"
 
 echo "PASS: all tests"
