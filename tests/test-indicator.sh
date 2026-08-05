@@ -83,6 +83,14 @@ hooks=$(tmux_cmd show-hooks -g 2>/dev/null || true)
 if echo "$hooks" | grep -q 'pane-focus-in.sh'; then
     fail "old focus hooks not cleaned up"
 fi
-pass "bootstrap: interpolation + formats + cleanup"
+sstyle=$(tmux_cmd show-option -gqv status-style)
+[ "$sstyle" = "bg=colour234,fg=colour250" ] \
+    || fail "theme not applied to factory status-style: $sstyle"
+# a customised status-style is respected
+tmux_cmd set -g status-style "bg=red"
+tmux_cmd run-shell "$ROOT_DIR/statusbar/statusbar.tmux"
+sstyle=$(tmux_cmd show-option -gqv status-style)
+[ "$sstyle" = "bg=red" ] || fail "customised status-style clobbered: $sstyle"
+pass "bootstrap: interpolation + formats + theme + cleanup"
 
 echo "PASS: test-indicator"

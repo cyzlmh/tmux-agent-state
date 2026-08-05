@@ -13,6 +13,8 @@
 # window-status-format / window-status-current-format are only set when the
 # user has not customised them; the default is extended with
 # #{@agent-status-chips} (one colour chip per agent pane, see colorize.sh).
+# status-style is taken over (dark bar, bg=colour234,fg=colour250) only when
+# it is still tmux's factory default; opt out with @agent-status-theme off.
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INDICATOR="$CURRENT_DIR/scripts/indicator.py"
@@ -46,6 +48,21 @@ ensure_window_status_formats() {
     done
 }
 
+# Take over the bar's status-style so the state colours sit on the dark
+# background they were designed for (on tmux's factory green, the green/blue
+# states are unreadable). Only when the user has not customised status-style
+# — tmux's factory default is "bg=green,fg=black" — and has not opted out
+# with `set -g @agent-status-theme off`.
+ensure_status_style() {
+    local theme style
+    theme=$(tmux show-option -gqv "@agent-status-theme")
+    [ "$theme" = "off" ] && return
+    style=$(tmux show-option -gqv status-style)
+    if [ "$style" = "bg=green,fg=black" ]; then
+        tmux set-option -gq status-style "bg=colour234,fg=colour250"
+    fi
+}
+
 # Remove hooks registered by older versions of this bootstrap (focus-based
 # style clearing is gone — chips are pure information).
 cleanup_old_hooks() {
@@ -70,6 +87,7 @@ main() {
     update_option "@minimal-tmux-status-right-extra"
     update_option "@minimal-tmux-status-left-extra"
     ensure_window_status_formats
+    ensure_status_style
     cleanup_old_hooks
 }
 

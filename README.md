@@ -70,6 +70,12 @@ set -g status-right '#{agent_status} | %H:%M'
 tmux run-shell ~/tmux-agent-state/statusbar/statusbar.tmux   # once per server
 ```
 
+The bootstrap also owns the bar's look: if `status-style` is still tmux's
+factory default (`bg=green,fg=black` — which makes green/blue states
+unreadable), it is set to `bg=colour234,fg=colour250`, the dark background
+the state colours are designed for. A customised `status-style` is left
+untouched; `set -g @agent-status-theme off` opts out entirely.
+
 **1. Statistics segment (status-right)** — the status bar shows the same
 content in every window (it is scoped to the session), so it reports
 aggregate counts instead of per-pane detail:
@@ -79,7 +85,9 @@ aggregate counts instead of per-pane detail:
 ```
 
 Zero counts are omitted; an empty session shows nothing. Config:
-`@agent-status-scope` (session|window), `@agent-status-color-*`.
+`@agent-status-scope` (session|window), `@agent-status-color-*` (defaults:
+needs-input colour214, done colour34, stale colour161, running colour39),
+`@agent-status-theme` (on|off).
 
 **2. Window-label colour chips** — each window's label in the window list
 shows one colour chip per agent pane, in pane layout order, so a glance at
