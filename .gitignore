@@ -2,3 +2,8 @@ node_modules/
 *.tsbuildinfo
 __pycache__/
 .DS_Store
+
+# local-only dev conventions and viz dev-service runtime files (see AGENTS.md)
+AGENTS.md
+tmux-viz/viz.pid
+tmux-viz/viz.log
