@@ -28,14 +28,18 @@ tmux-agent-state/
     statusbar.tmux        tmux bootstrap (interpolates #{agent_status} + window-status formats)
     scripts/indicator.py  status segment: session-level agent statistics (?/✓/!/▶)
     scripts/colorize.sh   window-label colour chips: one per agent pane, in layout order
+  tmux-viz/
+    tmux_viz.py           web visualiser: overview cards + per-window detail, same
+                          reader rules as the status bar (python3 tmux-viz/tmux_viz.py)
   tests/               tmux-socket integration + unit tests (bash tests/run-all.sh)
 ```
 
 Consumers: the status-bar segment in `statusbar/` (tmux-native, aligned with
 [tmux-agent-indicator](https://github.com/accessd/tmux-agent-indicator)'s
-model), and a web visualiser (work in progress, not yet in this repo) — both
-trust `@agent-state` when fresh and report `stale` / `untracked` explicitly
-for everything else (no heuristics).
+model), and the web visualiser in `tmux-viz/` — both follow the PROTOCOL.md
+reader rules (a live adapter's state is trusted regardless of age; liveness is
+the pane foreground command, never `ts`) and report `stale` / `untracked`
+explicitly for everything else (no heuristics).
 
 ## Install
 
@@ -86,7 +90,7 @@ aggregate counts instead of per-pane detail:
 
 Zero counts are omitted; an empty session shows nothing. Config:
 `@agent-status-scope` (session|window), `@agent-status-color-*` (defaults:
-needs-input colour214, done colour34, stale colour161, running colour39),
+needs-input colour180, done colour108, stale colour167, running colour68),
 `@agent-status-theme` (on|off).
 
 **2. Window-label colour chips** — each window's label in the window list
@@ -114,16 +118,44 @@ Wire state -> display mapping (deterministic facts only):
 | @agent-state            | display            |
 | ----------------------- | ------------------ |
 | `busy`                  | running (blue)     |
-| `waiting` + asking      | needs-input (yellow, bold)
-| `waiting` + done        | done (green)       |
+| `waiting` + asking      | needs-input (sand, bold)
+| `waiting` + done        | done (sage)       |
 | `waiting` + ready       | (not counted)      |
-| adapter present, pane foreground is a shell | stale (red) |
+| adapter present, pane foreground is a shell | stale (soft red) |
 
 `state` comes from adapter events only (input/agent_start -> busy,
 agent_settled -> waiting); `detail=asking` is reliable too — the pi
 `question` tool (optional example, `adapters/pi/question.ts`) writes
 waiting/asking while it blocks on the user (see
 `adapters/pi/README.md`). Other `detail` values are display hints only.
+
+## Design language
+
+One palette, shared by every consumer: the status bar uses tmux 256-colour
+values, the web visualiser (`tmux-viz/`) uses their hex equivalents, so a
+state is the same colour in both. Chrome is monochrome — state colours are
+the only colours.
+
+| display state | meaning                       | tmux      | hex       | symbol   |
+| ------------- | ----------------------------- | --------- | --------- | -------- |
+| needs-input   | agent is asking for input     | colour180 | `#d7af87` | `?` bold |
+| done          | agent finished a turn         | colour108 | `#87af87` | `✓`      |
+| running       | agent is busy                 | colour68  | `#5f87d7` | `▶`      |
+| stale         | adapter gone, state lingering | colour167 | `#d75f5f` | `!`      |
+| ready / shell / untracked / dead | informational only | — | muted grey | `·` / `✕` |
+
+Chrome: background `#1c1c1c` (colour234), panel `#262626`, lines `#3a3a3a`,
+text `#bcbcbc` (colour250), muted `#808080`.
+
+Principles:
+
+- **needs-input is the only attention colour** — the only bold/accented
+  element anywhere. done/running are information, stale is an anomaly,
+  everything else stays muted.
+- **explicit over implicit** — stale/untracked are shown as-is, never
+  papered over with a friendlier colour.
+- **minimal chrome** — no glow, no tinted borders, no badge pills; a 1px
+  neutral border plus a coloured symbol carries the state.
 
 ## Status
 

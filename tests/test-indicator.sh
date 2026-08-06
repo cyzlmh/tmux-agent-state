@@ -25,7 +25,7 @@ pass "empty session"
 write_state "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
 out=$(run_indicator)
 echo "$out" | grep -q '!1' || fail "shell pane with state should be stale: $out"
-echo "$out" | grep -q 'colour161' || fail "stale should be red: $out"
+echo "$out" | grep -q 'colour167' || fail "stale should be soft red: $out"
 pass "shell foreground -> stale"
 
 # 3. same state with a live foreground process -> trusted (done)
@@ -47,7 +47,7 @@ out=$(run_indicator)
 echo "$out" | grep -q '?1' || fail "should count 1 asking: $out"
 echo "$out" | grep -q '✓1' || fail "should count 1 done: $out"
 echo "$out" | grep -q '▶1' || fail "should count 1 running: $out"
-echo "$out" | grep -q 'colour214' || fail "asking should be yellow: $out"
+echo "$out" | grep -q 'colour180' || fail "asking should be sand: $out"
 pass "counts: asking + done + running"
 
 # 5. window scope: only the current window's panes

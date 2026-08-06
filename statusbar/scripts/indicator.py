@@ -17,10 +17,10 @@ Add to your status bar (after running statusbar/statusbar.tmux once):
 Config (tmux global user options, e.g. `set -g @agent-status-scope window`):
   @agent-status-enabled           on/off                     (default on)
   @agent-status-scope             session|window             (default session)
-  @agent-status-color-needs-input needs-input colour         (default colour214)
-  @agent-status-color-done        done colour                (default colour34)
-  @agent-status-color-stale       stale colour               (default colour161)
-  @agent-status-color-running     running colour             (default colour39)
+  @agent-status-color-needs-input needs-input colour         (default colour180)
+  @agent-status-color-done        done colour                (default colour108)
+  @agent-status-color-stale       stale colour               (default colour167)
+  @agent-status-color-running     running colour             (default colour68)
 
 Chips refresh: this script doubles as the periodic trigger for colorize.sh
 (window-label colour chips). Adapters only invoke colorize.sh on state
@@ -59,10 +59,10 @@ COLORIZE = os.environ.get(
 SYMBOLS = {"needs-input": "?", "done": "✓", "stale": "!", "running": "▶"}
 ORDER = ["needs-input", "done", "stale", "running"]
 DEFAULT_COLORS = {
-    "needs-input": "colour214",
-    "done": "colour34",
-    "stale": "colour161",
-    "running": "colour39",
+    "needs-input": "colour180",
+    "done": "colour108",
+    "stale": "colour167",
+    "running": "colour68",
 }
 
 # pane_current_command values that mean "no agent process is running"

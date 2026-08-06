@@ -6,7 +6,7 @@
 # order (top-to-bottom, left-to-right) — and writes it to the window user
 # option @agent-status-chips:
 #
-#   #[bg=colour34] #[default]#[bg=colour214] #[default]
+#   #[bg=colour108] #[default]#[bg=colour180] #[default]
 #
 # The window-status format (set up by statusbar/statusbar.tmux) renders these
 # chips right after the window name, so a window label shows exactly how many
@@ -83,10 +83,10 @@ elif st == "waiting" and d.get("detail") == "done":
 
 color_for() {
     case "$1" in
-        needs-input) tmux_get_option_or_default "@agent-status-color-needs-input" "colour214" ;;
-        done) tmux_get_option_or_default "@agent-status-color-done" "colour34" ;;
-        stale) tmux_get_option_or_default "@agent-status-color-stale" "colour161" ;;
-        running) tmux_get_option_or_default "@agent-status-color-running" "colour39" ;;
+        needs-input) tmux_get_option_or_default "@agent-status-color-needs-input" "colour180" ;;
+        done) tmux_get_option_or_default "@agent-status-color-done" "colour108" ;;
+        stale) tmux_get_option_or_default "@agent-status-color-stale" "colour167" ;;
+        running) tmux_get_option_or_default "@agent-status-color-running" "colour68" ;;
         *) printf '' ;;
     esac
 }

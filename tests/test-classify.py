@@ -60,16 +60,16 @@ counts = ind.count_stats(entries)
 check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1}, f"counts: {counts}")
 
 r = ind.render_stats(counts, ind.DEFAULT_COLORS)
-check("?1" in r and "colour214" in r and "bold" in r, f"needs-input segment: {r}")
-check("✓2" in r and "colour34" in r, f"done segment: {r}")
-check("!1" in r and "colour161" in r, f"stale segment: {r}")
-check("▶1" in r and "colour39" in r, f"running segment: {r}")
+check("?1" in r and "colour180" in r and "bold" in r, f"needs-input segment: {r}")
+check("✓2" in r and "colour108" in r, f"done segment: {r}")
+check("!1" in r and "colour167" in r, f"stale segment: {r}")
+check("▶1" in r and "colour68" in r, f"running segment: {r}")
 # order fixed: needs-input, done, stale, running
 check(r.find("?1") < r.find("✓2") < r.find("!1") < r.find("▶1"), f"order: {r}")
 
 empty = ind.render_stats({"needs-input": 0, "done": 0, "stale": 0, "running": 0}, ind.DEFAULT_COLORS)
 check(empty == "", "zero counts -> empty")
 only_run = ind.render_stats({"needs-input": 0, "done": 0, "stale": 0, "running": 2}, ind.DEFAULT_COLORS)
-check(only_run == "#[fg=colour39]▶2#[default]", f"only running: {only_run}")
+check(only_run == "#[fg=colour68]▶2#[default]", f"only running: {only_run}")
 
 print(f"PASS: {passed} checks")
