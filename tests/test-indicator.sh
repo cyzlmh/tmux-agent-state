@@ -76,9 +76,13 @@ if echo "$val" | grep -q '#{agent_status}'; then
     fail "placeholder not replaced: $val"
 fi
 wfmt=$(tmux_cmd show-option -gqv window-status-format)
-echo "$wfmt" | grep -q '@agent-status-chips' || fail "window-status-format missing chips: $wfmt"
+[ "$wfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+    || fail "window-status-format not the glued-chips template: $wfmt"
 wcfmt=$(tmux_cmd show-option -gqv window-status-current-format)
-echo "$wcfmt" | grep -q '@agent-status-chips' || fail "current format missing chips: $wcfmt"
+[ "$wcfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+    || fail "current format not the glued-chips template: $wcfmt"
+sep=$(tmux_cmd show-option -gqv window-status-separator)
+[ "$sep" = "|" ] || fail "factory separator not replaced with '|': $sep"
 hooks=$(tmux_cmd show-hooks -g 2>/dev/null || true)
 if echo "$hooks" | grep -q 'pane-focus-in.sh'; then
     fail "old focus hooks not cleaned up"
@@ -91,6 +95,15 @@ tmux_cmd set -g status-style "bg=red"
 tmux_cmd run-shell "$ROOT_DIR/statusbar/statusbar.tmux"
 sstyle=$(tmux_cmd show-option -gqv status-style)
 [ "$sstyle" = "bg=red" ] || fail "customised status-style clobbered: $sstyle"
+# a customised window-status-separator is respected
+# (and a previous bootstrap run has already migrated the format)
+tmux_cmd set -g window-status-separator " | "
+tmux_cmd run-shell "$ROOT_DIR/statusbar/statusbar.tmux"
+sep=$(tmux_cmd show-option -gqv window-status-separator)
+[ "$sep" = " | " ] || fail "customised separator clobbered: $sep"
+wfmt=$(tmux_cmd show-option -gqv window-status-format)
+[ "$wfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+    || fail "re-run should keep the glued template, not double-append: $wfmt"
 pass "bootstrap: interpolation + formats + theme + cleanup"
 
 echo "PASS: test-indicator"

@@ -51,7 +51,7 @@ agent adapter (the status bar runs without pi, but then has nothing to track).
 git clone https://github.com/cyzlmh/tmux-agent-state.git ~/tmux-agent-state
 
 # 1. status bar: add the placeholder, then load the bootstrap once per server
-tmux set -g status-right '#{agent_status} | %H:%M'
+tmux set -g status-right '#{agent_status}'
 tmux run-shell ~/tmux-agent-state/statusbar/statusbar.tmux
 
 # 2. pi adapter: symlink the extension, then /reload inside pi
@@ -63,6 +63,13 @@ ln -s ~/tmux-agent-state/adapters/pi/agent-state.ts ~/.pi/agent/extensions/agent
 # after installing codex hooks: run /hooks inside codex and trust them
 ```
 
+The `tmux set -g` commands above only apply to the running server; to keep
+the status bar across restarts, put both lines in `~/.tmux.conf` and reload
+with `tmux source-file ~/.tmux.conf`. The placeholder is plain text — append
+your own segments after it if you want them (e.g. `'#{agent_status} | %H:%M'`
+for a clock); the bootstrap interpolates in place and leaves the rest of the
+value untouched.
+
 ## Status bar
 
 The tmux-native consumer, two complementary surfaces driven by the same
@@ -70,15 +77,22 @@ The tmux-native consumer, two complementary surfaces driven by the same
 agent crashes surface as `stale` instead of a fake state that lingers):
 
 ```tmux
-set -g status-right '#{agent_status} | %H:%M'
+set -g status-right '#{agent_status}'
 tmux run-shell ~/tmux-agent-state/statusbar/statusbar.tmux   # once per server
 ```
+
+Want a clock or other segments? Append them after the placeholder — the
+bootstrap only replaces `#{agent_status}` and leaves the rest of the value
+untouched.
 
 The bootstrap also owns the bar's look: if `status-style` is still tmux's
 factory default (`bg=green,fg=black` — which makes green/blue states
 unreadable), it is set to `bg=colour234,fg=colour250`, the dark background
 the state colours are designed for. A customised `status-style` is left
-untouched; `set -g @agent-status-theme off` opts out entirely.
+untouched. The factory `window-status-separator` (a single space) becomes a
+visible `|` so one window's chips don't blur into the next window's label;
+a customised separator is left untouched. `set -g
+@agent-status-theme off` opts out entirely.
 
 **1. Statistics segment (status-right)** — the status bar shows the same
 content in every window (it is scoped to the session), so it reports
@@ -99,9 +113,13 @@ the labels tells you how many agents each window holds and what state each
 is in:
 
 ```
-[0] train ▮▮▮   3 agent panes: done / asking / done
-[1] tmux  ▮     1 agent: asking
+0:train▮▮▮|   3 agent panes: done / asking / done
+1:tmux▮|       1 agent: asking
 ```
+
+The chips are glued to the window name (no gap to mistake for a window
+boundary) and the `|` marks the boundary to the next window — no extra
+width is added to the labels.
 
 Chips are pure information (no border/title styling, nothing to reset on
 focus). The window-status formats are extended once by the bootstrap

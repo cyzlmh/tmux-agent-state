@@ -12,7 +12,10 @@ detail belongs to the window label (colour chips, see colorize.sh), not here.
 
 Add to your status bar (after running statusbar/statusbar.tmux once):
 
-    set -g status-right '#{agent_status} | %H:%M'
+    set -g status-right '#{agent_status}'
+
+Append your own segments after the placeholder if you want them, e.g.
+' | %H:%M' for a clock.
 
 Config (tmux global user options, e.g. `set -g @agent-status-scope window`):
   @agent-status-enabled           on/off                     (default on)

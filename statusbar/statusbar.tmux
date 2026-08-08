@@ -4,15 +4,18 @@
 #
 # Usage: add '#{agent_status}' to a status option, then load once per server:
 #
-#   set -g status-right '#{agent_status} | %H:%M'
+#   set -g status-right '#{agent_status}'  (append your own segments, e.g. ' | %H:%M', if you want them)
 #   tmux run-shell "$HOME/tmux-agent-state/statusbar/statusbar.tmux"
 #
 # (or add the run-shell line to ~/.tmux.conf). Idempotent: the placeholder
 # is replaced on first load, so re-running does not double-interpolate.
 #
 # window-status-format / window-status-current-format are only set when the
-# user has not customised them; the default is extended with
-# #{@agent-status-chips} (one colour chip per agent pane, see colorize.sh).
+# user has not customised them; the factory default is replaced with the
+# chips version — colour chips glued to the window name
+# (#{@agent-status-chips}, one chip per agent pane, see colorize.sh) — and
+# the window-status-separator (factory default: a single space) becomes a
+# visible '|', so one window's chips don't blur into the next window's label.
 # status-style is taken over (dark bar, bg=colour234,fg=colour250) only when
 # it is still tmux's factory default; opt out with @agent-status-theme off.
 
@@ -35,17 +38,43 @@ update_option() {
     tmux set-option -gq "$option" "$(interpolate "$value")"
 }
 
-# Extend the window-label formats with the chips segment. Idempotent: if
-# the format already carries #{@agent-status-chips}, leave it untouched;
-# otherwise append (preserving any user-customised format).
+# The tmux factory window label format; the "no flags" else-branch is a
+# space, which would float between the window name and the chips. Replaced
+# (see ensure_window_status_formats) with the chips-glued-to-the-name
+# version below.
+DEFAULT_WINDOW_FORMAT='#I:#W#{?window_flags,#{window_flags}, }'
+NEW_WINDOW_FORMAT='#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}'
+
+# Extend the window-label formats with the chips segment, glued to the
+# window name. Idempotent and migration-safe: the factory format and the
+# previous version of ours (factory + chips) are replaced by the glued
+# template; any user-customised format is only extended with
+# #{@agent-status-chips}, preserving the customisation.
 ensure_window_status_formats() {
     local opt v
     for opt in window-status-format window-status-current-format; do
         v=$(tmux show-option -gqv "$opt")
-        if [[ "$v" != *"@agent-status-chips"* ]]; then
+        if [ "$v" = "$DEFAULT_WINDOW_FORMAT" ] || [ "$v" = "${DEFAULT_WINDOW_FORMAT}#{@agent-status-chips}" ]; then
+            tmux set-option -gq "$opt" "$NEW_WINDOW_FORMAT"
+        elif [[ "$v" != *"@agent-status-chips"* ]]; then
             tmux set-option -gq "$opt" "${v}#{@agent-status-chips}"
         fi
     done
+}
+
+# The window separator is a single space by default — invisible. With the
+# chips glued to the window name, that separator is the only boundary
+# between windows, so it becomes a visible '|'. Only when the user still has
+# the factory separator (or the previous version's '·'); opt out with
+# @agent-status-theme off.
+ensure_status_separator() {
+    local theme sep
+    theme=$(tmux show-option -gqv "@agent-status-theme")
+    [ "$theme" = "off" ] && return
+    sep=$(tmux show-option -gqv window-status-separator)
+    if [ "$sep" = " " ] || [ "$sep" = "·" ]; then
+        tmux set-option -gq window-status-separator "|"
+    fi
 }
 
 # Take over the bar's status-style so the state colours sit on the dark
@@ -87,6 +116,7 @@ main() {
     update_option "@minimal-tmux-status-right-extra"
     update_option "@minimal-tmux-status-left-extra"
     ensure_window_status_formats
+    ensure_status_separator
     ensure_status_style
     cleanup_old_hooks
 }
