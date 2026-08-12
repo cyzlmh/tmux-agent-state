@@ -43,7 +43,13 @@ update_option() {
 # (see ensure_window_status_formats) with the chips-glued-to-the-name
 # version below.
 DEFAULT_WINDOW_FORMAT='#I:#W#{?window_flags,#{window_flags}, }'
-NEW_WINDOW_FORMAT='#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}'
+# Chips glued to the window name, without the tmux window-flags suffix
+# (* current / - last / ! bell / ...) — the active window is told apart
+# by its background style (see ensure_current_window_style) instead.
+NEW_WINDOW_FORMAT='#I:#W#{@agent-status-chips}'
+# Previous chips version, still carrying the flags suffix; replaced too so
+# upgrades drop the suffix.
+LEGACY_NEW_WINDOW_FORMAT='#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}'
 
 # Extend the window-label formats with the chips segment, glued to the
 # window name. Idempotent and migration-safe: the factory format and the
@@ -54,11 +60,16 @@ ensure_window_status_formats() {
     local opt v
     for opt in window-status-format window-status-current-format; do
         v=$(tmux show-option -gqv "$opt")
-        if [ "$v" = "$DEFAULT_WINDOW_FORMAT" ] || [ "$v" = "${DEFAULT_WINDOW_FORMAT}#{@agent-status-chips}" ]; then
-            tmux set-option -gq "$opt" "$NEW_WINDOW_FORMAT"
-        elif [[ "$v" != *"@agent-status-chips"* ]]; then
-            tmux set-option -gq "$opt" "${v}#{@agent-status-chips}"
-        fi
+        case "$v" in
+            "$DEFAULT_WINDOW_FORMAT"|"${DEFAULT_WINDOW_FORMAT}#{@agent-status-chips}"|"$LEGACY_NEW_WINDOW_FORMAT")
+                tmux set-option -gq "$opt" "$NEW_WINDOW_FORMAT"
+                ;;
+            *)
+                if [[ "$v" != *"@agent-status-chips"* ]]; then
+                    tmux set-option -gq "$opt" "${v}#{@agent-status-chips}"
+                fi
+                ;;
+        esac
     done
 }
 
@@ -92,6 +103,20 @@ ensure_status_style() {
     fi
 }
 
+# Give the current window a distinct background so it stands out from the
+# rest of the dark bar. Only when the user has not customised
+# window-status-current-style and has not opted out with
+# `set -g @agent-status-theme off`.
+ensure_current_window_style() {
+    local theme style
+    theme=$(tmux show-option -gqv "@agent-status-theme")
+    [ "$theme" = "off" ] && return
+    style=$(tmux show-option -gqv window-status-current-style)
+    if [ -z "$style" ] || [ "$style" = "default" ]; then
+        tmux set-option -gq window-status-current-style "fg=colour234,bg=colour250"
+    fi
+}
+
 # Remove hooks registered by older versions of this bootstrap (focus-based
 # style clearing is gone — chips are pure information).
 cleanup_old_hooks() {
@@ -118,6 +143,7 @@ main() {
     ensure_window_status_formats
     ensure_status_separator
     ensure_status_style
+    ensure_current_window_style
     cleanup_old_hooks
 }
 
