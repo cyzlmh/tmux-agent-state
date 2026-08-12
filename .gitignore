@@ -5,5 +5,6 @@ __pycache__/
 
 # local-only dev conventions and viz dev-service runtime files (see AGENTS.md)
 AGENTS.md
+.pi/
 tmux-viz/viz.pid
 tmux-viz/viz.log
