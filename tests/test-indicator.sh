@@ -76,10 +76,10 @@ if echo "$val" | grep -q '#{agent_status}'; then
     fail "placeholder not replaced: $val"
 fi
 wfmt=$(tmux_cmd show-option -gqv window-status-format)
-[ "$wfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+[ "$wfmt" = '#I:#W#{@agent-status-chips}' ] \
     || fail "window-status-format not the glued-chips template: $wfmt"
 wcfmt=$(tmux_cmd show-option -gqv window-status-current-format)
-[ "$wcfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+[ "$wcfmt" = '#I:#W#{@agent-status-chips}' ] \
     || fail "current format not the glued-chips template: $wcfmt"
 sep=$(tmux_cmd show-option -gqv window-status-separator)
 [ "$sep" = "|" ] || fail "factory separator not replaced with '|': $sep"
@@ -102,7 +102,7 @@ tmux_cmd run-shell "$ROOT_DIR/statusbar/statusbar.tmux"
 sep=$(tmux_cmd show-option -gqv window-status-separator)
 [ "$sep" = " | " ] || fail "customised separator clobbered: $sep"
 wfmt=$(tmux_cmd show-option -gqv window-status-format)
-[ "$wfmt" = '#I:#W#{?window_flags,#{window_flags},}#{@agent-status-chips}' ] \
+[ "$wfmt" = '#I:#W#{@agent-status-chips}' ] \
     || fail "re-run should keep the glued template, not double-append: $wfmt"
 pass "bootstrap: interpolation + formats + theme + cleanup"
 
