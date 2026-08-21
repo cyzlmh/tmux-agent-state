@@ -97,6 +97,29 @@ names or screen content.
 3. **Clear on shutdown** (`set-option -u -p`) so stale data does not linger
    after the agent exits and the shell returns.
 4. If `$TMUX_PANE` is unset (not running inside tmux), the adapter is a no-op.
+5. **Subagent events are not state.** Hook payloads carrying a subagent id
+   (claude: `agent_id`) belong to a nested agent and must not overwrite the
+   main pane's state (`--guard` in `agent-state.sh`). Do not subscribe to
+   subagent lifecycle events (claude: `SubagentStop`) at all — a recap event
+   after the main turn would otherwise revive an idle pane.
+
+## Side channels (optional)
+
+Writers that use `adapters/agent-state.sh` also produce, best effort:
+
+- **wait-for channel**: every write/clear signals the per-pane tmux channel
+  `agent-state-<pane_id>` and the global channel `agent-state`.
+  `statusbar/scripts/wait.py <pane> STATE... [--timeout N]` blocks on the
+  per-pane channel and re-classifies after each wake — the building block
+  for scripts ("notify me when the agent asks") without any daemon. The
+  global channel drives `examples/notify-on-input.sh` (desktop notification
+  on needs-input); signals are edges but scans are levels, so consumers must
+  treat wakes as hints and dedup on the payload `ts`.
+- **transition log**: every write/clear appends one JSONL line
+  (`{"ts","pane","tool","state","detail"}`, `state:"cleared"` on clear) to
+  `$TMUX_AGENT_STATE_LOG` (default `${TMPDIR:-/tmp}/tmux-agent-state.log`,
+  empty disables). `explain.py <pane> --history N` prints a pane's last N
+  transitions from it.
 
 ## Reader rules (precedence)
 

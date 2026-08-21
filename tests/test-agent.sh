@@ -72,6 +72,9 @@ for ev, groups in d["hooks"].items():
         cmd = g["hooks"][0]["command"]
         assert "__AGENT_STATE__" in cmd, f"{name}/{ev}: placeholder missing: {cmd}"
         assert "--agent {name}".format(name=name) in cmd or "--clear" in cmd, f"{name}/{ev}: wrong agent: {cmd}"
+        assert "--adapter-version 1" in cmd, f"{name}/{ev}: version marker missing: {cmd}"
+        if name == "claude" and "--clear" not in cmd:
+            assert "--guard" in cmd, f"claude/{ev}: subagent guard missing: {cmd}"
 EOF
     pass "template $tmpl"
 done
@@ -91,6 +94,7 @@ assert cmds, "kimi: no commands found"
 for cmd in cmds:
     assert cmd.startswith("__AGENT_STATE__ "), f"kimi: placeholder missing: {cmd}"
     assert "--agent kimi" in cmd or "--clear" in cmd, f"kimi: wrong agent: {cmd}"
+    assert "--adapter-version 1" in cmd, f"kimi: version marker missing: {cmd}"
 try:
     import tomllib
 except ImportError:
@@ -126,6 +130,28 @@ for ev, groups in d["hooks"].items():
         f"{ev}: duplicate tmux-agent-state entries after reinstall"
 EOF
 pass "install merge + idempotent"
+
+# 6d. --check reports adapter versions; legacy wiring (no version marker)
+#     is reported as unversioned -> template v1
+out=$(HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" --check claude)
+echo "$out" | grep -q 'up to date (adapter v1)' || fail "--check up to date: $out"
+python3 - "$FAKE_HOME/.claude/settings.json" <<'EOF'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+for groups in d["hooks"].values():
+    for g in groups:
+        for h in g.get("hooks", []):
+            if "agent-state.sh" in h.get("command", ""):
+                h["command"] = h["command"].replace(" --adapter-version 1", "")
+json.dump(d, open(p, "w"), indent=2)
+EOF
+if HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" --check claude > "$FAKE_HOME/check.out" 2>&1; then
+    fail "--check should exit 1 on drifted (unversioned) wiring"
+fi
+grep -q 'OUTDATED (installed unversioned -> template v1' "$FAKE_HOME/check.out" \
+    || fail "--check drift message: $(cat "$FAKE_HOME/check.out")"
+pass "--check reports adapter versions"
 
 # 6b. install.sh kimi: appends a marked block to config.toml, preserves the
 #     user's TOML (existing hooks included), idempotent on re-run
@@ -176,5 +202,53 @@ fi
 [ "$(cat "$FAKE_HOME/.claude/settings.json")" = '{invalid json' ] \
     || fail "config was modified despite refusal"
 pass "install refuses invalid JSON"
+
+# 8. --guard: subagent hook payloads (agent_id present, e.g. claude Task
+#    subagents) must not overwrite the main pane's state
+run_agent_state "$PANE" --agent claude --state busy --detail working
+echo '{"hook_event_name":"PostToolUse","agent_id":"a1b2c3"}' \
+    | TMUX_STATUS_TMUX="tmux -L $SOCK" TMUX_PANE="$PANE" \
+      bash "$AGENT_STATE" --agent claude --state waiting --detail asking --guard
+raw=$(get_state "$PANE")
+echo "$raw" | grep -q '"state":"busy"' || fail "subagent payload should be dropped: $raw"
+pass "guard drops subagent payload"
+
+# 8b. --guard: main-agent payload (no agent_id) passes through
+echo '{"hook_event_name":"PermissionRequest","session_id":"s1"}' \
+    | TMUX_STATUS_TMUX="tmux -L $SOCK" TMUX_PANE="$PANE" \
+      bash "$AGENT_STATE" --agent claude --state waiting --detail asking --guard
+raw=$(get_state "$PANE")
+echo "$raw" | grep -q '"detail":"asking"' || fail "main payload should pass the guard: $raw"
+pass "guard passes main-agent payload"
+
+# 8c. --guard fails open: unreadable/garbage stdin must not block a write
+echo 'not json at all' \
+    | TMUX_STATUS_TMUX="tmux -L $SOCK" TMUX_PANE="$PANE" \
+      bash "$AGENT_STATE" --agent claude --state busy --detail working --guard
+raw=$(get_state "$PANE")
+echo "$raw" | grep -q '"state":"busy"' || fail "garbage stdin should fail open: $raw"
+pass "guard fails open on garbage"
+
+# 8d. --adapter-version marker is accepted (and ignored) for --check reporting
+run_agent_state "$PANE" --agent claude --state busy --detail working --adapter-version 1
+raw=$(get_state "$PANE")
+echo "$raw" | grep -q '"state":"busy"' || fail "--adapter-version should be ignored: $raw"
+pass "--adapter-version accepted"
+
+# 9. transition log: every write/clear appends one JSONL line
+LOG="$(mktemp)"
+register_tmp_file "$LOG"
+TMUX_AGENT_STATE_LOG="$LOG" run_agent_state "$PANE" --agent claude --state busy --detail working
+TMUX_AGENT_STATE_LOG="$LOG" run_agent_state "$PANE" --clear
+python3 - "$LOG" "$PANE" <<'EOF' || fail "transition log check failed"
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+assert len(rows) == 2, f"expected 2 log lines, got {len(rows)}: {rows}"
+assert rows[0]["pane"] == sys.argv[2] and rows[0]["state"] == "busy", rows[0]
+assert rows[0]["tool"] == "claude" and rows[0]["detail"] == "working", rows[0]
+assert isinstance(rows[0]["ts"], (int, float)), rows[0]
+assert rows[1]["state"] == "cleared", rows[1]
+EOF
+pass "transition log (write + clear)"
 
 echo "PASS: test-agent"

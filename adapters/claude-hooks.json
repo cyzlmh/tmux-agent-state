@@ -1,31 +1,94 @@
 {
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail ready" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state waiting --detail ready --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "PostToolUse": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "PermissionRequest": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "Elicitation": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state waiting --detail asking --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "ElicitationResult": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state busy --detail working" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --agent claude --state waiting --detail done" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent claude --state waiting --detail done --guard --adapter-version 1"
+          }
+        ]
+      }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "__AGENT_STATE__ --clear" }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --clear --adapter-version 1"
+          }
+        ]
+      }
     ]
   }
 }

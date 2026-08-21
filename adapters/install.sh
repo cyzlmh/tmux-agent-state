@@ -105,13 +105,20 @@ EOF
 check_hooks() {  # $1 target-file $2 template-file $3 agent-name
     local target="$1" template="$2" agent="$3"
     python3 - "$target" "$template" "$AGENT_STATE" "$agent" <<'EOF'
-import json, sys
+import json, re, sys
 
 target, template, path, agent = sys.argv[1:5]
+
+def version(text):
+    found = re.findall(r"--adapter-version (\d+)", text)
+    return f"v{max(map(int, found))}" if found else "unversioned"
+
+template_text = open(template).read()
+tmpl_ver = version(template_text)
 try:
     data = json.load(open(target))
 except FileNotFoundError:
-    print(f"{agent}: NOT INSTALLED ({target} missing)")
+    print(f"{agent}: NOT INSTALLED ({target} missing; template is {tmpl_ver})")
     sys.exit(1)
 except ValueError as e:
     # Same rule as install: never touch a config we cannot parse.
@@ -121,37 +128,45 @@ if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
     print(f"{agent}: cannot check, {target} has no hooks object")
     sys.exit(1)
 
-new = json.loads(open(template).read().replace("__AGENT_STATE__", path))
+new = json.loads(template_text.replace("__AGENT_STATE__", path))
 hooks = data.get("hooks", {})
 drift = []
+installed_text = ""
 for ev, groups in new["hooks"].items():
     installed = [g for g in hooks.get(ev, []) if "agent-state.sh" in json.dumps(g)]
+    installed_text += json.dumps(installed)
     if installed != groups:
         drift.append(ev)
 for ev, groups in hooks.items():
     if ev not in new["hooks"] and any("agent-state.sh" in json.dumps(g) for g in groups):
         drift.append(f"{ev} (no longer in template)")
 if drift:
-    print(f"{agent}: OUTDATED ({', '.join(drift)}) — re-run install.sh {agent}")
+    print(f"{agent}: OUTDATED (installed {version(installed_text)} -> template {tmpl_ver}; "
+          f"drifted: {', '.join(drift)}) — re-run install.sh {agent}")
     sys.exit(1)
-print(f"{agent}: up to date")
+print(f"{agent}: up to date (adapter {tmpl_ver})")
 EOF
 }
 
 check_kimi() {  # $1 target-file $2 template-file
     local target="$1" template="$2"
     python3 - "$target" "$template" "$AGENT_STATE" <<'EOF'
-import sys
+import re, sys
 
 target, template, path = sys.argv[1:4]
 BEGIN = "# >>> tmux-agent-state >>>"
 END = "# <<< tmux-agent-state <<<"
 
+def version(text):
+    found = re.findall(r"--adapter-version (\d+)", text)
+    return f"v{max(map(int, found))}" if found else "unversioned"
+
 expected = open(template).read().replace("__AGENT_STATE__", path).strip("\n")
+tmpl_ver = version(expected)
 try:
     text = open(target).read()
 except FileNotFoundError:
-    print(f"kimi: NOT INSTALLED ({target} missing)")
+    print(f"kimi: NOT INSTALLED ({target} missing; template is {tmpl_ver})")
     sys.exit(1)
 
 installed, inside, terminated = [], False, False
@@ -166,12 +181,14 @@ if inside:
     print(f"kimi: cannot check, {target} has an unterminated tmux-agent-state block")
     sys.exit(1)
 if not terminated:
-    print(f"kimi: NOT INSTALLED (no tmux-agent-state block in {target})")
+    print(f"kimi: NOT INSTALLED (no tmux-agent-state block in {target}; template is {tmpl_ver})")
     sys.exit(1)
-if "\n".join(installed).strip("\n") != expected:
-    print("kimi: OUTDATED — re-run install.sh kimi")
+installed_text = "\n".join(installed).strip("\n")
+if installed_text != expected:
+    print(f"kimi: OUTDATED (installed {version(installed_text)} -> template {tmpl_ver})"
+          " — re-run install.sh kimi")
     sys.exit(1)
-print("kimi: up to date")
+print(f"kimi: up to date (adapter {tmpl_ver})")
 EOF
 }
 
