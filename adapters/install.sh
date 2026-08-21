@@ -15,6 +15,11 @@
 #   ./install.sh codex      only codex
 #   ./install.sh kimi       only kimi
 #
+#   ./install.sh --check [claude|codex|kimi]
+#       report whether the installed wiring matches the current templates
+#       (no writes; exit 1 when anything is missing or outdated — re-run
+#       install.sh to upgrade)
+#
 # After installing codex hooks, run /hooks inside codex and trust the
 # tmux-agent-state hook definitions before they can run.
 
@@ -97,25 +102,117 @@ print(f"kimi: wrote hooks -> {target}")
 EOF
 }
 
+check_hooks() {  # $1 target-file $2 template-file $3 agent-name
+    local target="$1" template="$2" agent="$3"
+    python3 - "$target" "$template" "$AGENT_STATE" "$agent" <<'EOF'
+import json, sys
+
+target, template, path, agent = sys.argv[1:5]
+try:
+    data = json.load(open(target))
+except FileNotFoundError:
+    print(f"{agent}: NOT INSTALLED ({target} missing)")
+    sys.exit(1)
+except ValueError as e:
+    # Same rule as install: never touch a config we cannot parse.
+    print(f"{agent}: cannot check, {target} is not valid JSON ({e})")
+    sys.exit(1)
+if not isinstance(data, dict) or not isinstance(data.get("hooks", {}), dict):
+    print(f"{agent}: cannot check, {target} has no hooks object")
+    sys.exit(1)
+
+new = json.loads(open(template).read().replace("__AGENT_STATE__", path))
+hooks = data.get("hooks", {})
+drift = []
+for ev, groups in new["hooks"].items():
+    installed = [g for g in hooks.get(ev, []) if "agent-state.sh" in json.dumps(g)]
+    if installed != groups:
+        drift.append(ev)
+for ev, groups in hooks.items():
+    if ev not in new["hooks"] and any("agent-state.sh" in json.dumps(g) for g in groups):
+        drift.append(f"{ev} (no longer in template)")
+if drift:
+    print(f"{agent}: OUTDATED ({', '.join(drift)}) — re-run install.sh {agent}")
+    sys.exit(1)
+print(f"{agent}: up to date")
+EOF
+}
+
+check_kimi() {  # $1 target-file $2 template-file
+    local target="$1" template="$2"
+    python3 - "$target" "$template" "$AGENT_STATE" <<'EOF'
+import sys
+
+target, template, path = sys.argv[1:4]
+BEGIN = "# >>> tmux-agent-state >>>"
+END = "# <<< tmux-agent-state <<<"
+
+expected = open(template).read().replace("__AGENT_STATE__", path).strip("\n")
+try:
+    text = open(target).read()
+except FileNotFoundError:
+    print(f"kimi: NOT INSTALLED ({target} missing)")
+    sys.exit(1)
+
+installed, inside, terminated = [], False, False
+for line in text.splitlines():
+    if line.strip() == BEGIN:
+        inside = True
+    elif line.strip() == END:
+        inside, terminated = False, True
+    elif inside:
+        installed.append(line)
+if inside:
+    print(f"kimi: cannot check, {target} has an unterminated tmux-agent-state block")
+    sys.exit(1)
+if not terminated:
+    print(f"kimi: NOT INSTALLED (no tmux-agent-state block in {target})")
+    sys.exit(1)
+if "\n".join(installed).strip("\n") != expected:
+    print("kimi: OUTDATED — re-run install.sh kimi")
+    sys.exit(1)
+print("kimi: up to date")
+EOF
+}
+
+CHECK=0
+if [ "${1:-}" = "--check" ]; then
+    CHECK=1
+    shift
+fi
+
+status=0
+step() {  # $1 agent-name; check mode reports drift, install mode rewrites
+    if [ "$CHECK" = 1 ]; then
+        case "$1" in
+            claude) check_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude" || status=1 ;;
+            codex)  check_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex" || status=1 ;;
+            kimi)   check_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE" || status=1 ;;
+        esac
+        return
+    fi
+    case "$1" in
+        claude) install_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude" ;;
+        codex)
+            install_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex"
+            echo "codex: run /hooks inside codex and trust the tmux-agent-state hooks before they run."
+            ;;
+        kimi) install_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE" ;;
+    esac
+}
+
 case "${1:-}" in
-    claude)
-        install_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude"
-        ;;
-    codex)
-        install_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex"
-        echo "codex: run /hooks inside codex and trust the tmux-agent-state hooks before they run."
-        ;;
-    kimi)
-        install_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE"
+    claude|codex|kimi)
+        step "$1"
         ;;
     "")
-        install_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude"
-        install_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex"
-        install_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE"
-        echo "codex: run /hooks inside codex and trust the tmux-agent-state hooks before they run."
+        step claude
+        step codex
+        step kimi
         ;;
     *)
-        echo "usage: install.sh [claude|codex|kimi]" >&2
+        echo "usage: install.sh [--check] [claude|codex|kimi]" >&2
         exit 1
         ;;
 esac
+exit "$status"

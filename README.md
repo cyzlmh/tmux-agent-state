@@ -26,8 +26,11 @@ tmux-agent-state/
       README.md        how to load + test it
   statusbar/
     statusbar.tmux        tmux bootstrap (interpolates #{agent_status} + window-status formats)
+    scripts/agent_state.py  shared classifier: the PROTOCOL.md reader rules, one module
+                            used by the segment, chips, explain and tmux-viz
     scripts/indicator.py  status segment: session-level agent statistics (?/✓/!/▶)
     scripts/colorize.sh   window-label colour chips: one per agent pane, in layout order
+    scripts/explain.py    why does a pane show its state? (explain.py <pane_id>)
   tmux-viz/
     tmux_viz.py           web visualiser: overview cards + per-window detail, same
                           reader rules as the status bar (python3 tmux-viz/tmux_viz.py)
@@ -61,6 +64,7 @@ ln -s ~/tmux-agent-state/adapters/pi/agent-state.ts ~/.pi/agent/extensions/agent
 # 3. claude/codex/kimi adapters (optional): merges hooks into their configs
 ~/tmux-agent-state/adapters/install.sh          # all, or: install.sh claude | codex | kimi
 # after installing codex hooks: run /hooks inside codex and trust them
+# later, after git pull: install.sh --check reports wiring drift (no writes)
 ```
 
 The `tmux set -g` commands above only apply to the running server; to keep
