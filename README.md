@@ -1,5 +1,7 @@
 # tmux-agent-state
 
+[![test](https://github.com/cyzlmh/tmux-agent-state/actions/workflows/test.yml/badge.svg)](https://github.com/cyzlmh/tmux-agent-state/actions/workflows/test.yml)
+
 Let CLI agents running in tmux panes (pi / claude code / codex / kimi code)
 report whether
 they are **waiting for user input** or **busy**, so an external visualiser /
@@ -10,6 +12,7 @@ monitor does not have to guess from screen content.
 ```
 tmux-agent-state/
   PROTOCOL.md          the shared @agent-state contract (read this first)
+  tmux-agent-state.tmux  TPM entry point (delegates to statusbar/statusbar.tmux)
   tsconfig.json        type-check setup for the adapters
   adapters/
     agent-state.sh     shared hook adapter: writes @agent-state from claude/codex events
@@ -78,6 +81,23 @@ with `tmux source-file ~/.tmux.conf`. The placeholder is plain text — append
 your own segments after it if you want them (e.g. `'#{agent_status} | %H:%M'`
 for a clock); the bootstrap interpolates in place and leaves the rest of the
 value untouched.
+
+### With TPM (optional)
+
+With [TPM](https://github.com/tmux-plugins/tpm), the clone and the
+status-bar bootstrap collapse into one plugin line in `~/.tmux.conf`:
+
+```tmux
+set -g @plugin 'cyzlmh/tmux-agent-state'
+set -g status-right '#{agent_status}'   # the placeholder contract is unchanged
+```
+
+`prefix + I` clones the repo and runs the top-level `tmux-agent-state.tmux`,
+which delegates to the same bootstrap. TPM tracks the default branch and
+re-runs the entry on every `tmux source-file ~/.tmux.conf` — the bootstrap
+is idempotent, so reloads are safe. Agent-side wiring (steps 2-3 above) is
+deliberately not part of plugin load: run `adapters/install.sh` from
+`~/.tmux/plugins/tmux-agent-state` yourself.
 
 ## Status bar
 
@@ -203,6 +223,11 @@ bunx tsc -p tsconfig.json
 # status segment + bootstrap on an isolated tmux socket
 bash tests/run-all.sh
 ```
+
+CI runs the same suite on macOS and Ubuntu for every push to main. TPM
+tracks the default branch, so main is the release channel and must stay
+green — `git config core.hooksPath .githooks` installs a pre-push hook that
+gates pushes on the full suite.
 
 ## License
 

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Pre-push gate: run the full suite before anything leaves the machine.
+# TPM tracks the default branch, so main is the release channel and must
+# stay green. Enable once per clone with:
+#
+#   git config core.hooksPath .githooks
+set -e
+exec bash "$(git rev-parse --show-toplevel)/tests/run-all.sh"
