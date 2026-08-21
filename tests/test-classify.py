@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""Unit tests for statusbar/scripts/indicator.py (pure functions, no tmux)."""
+"""Unit tests for the shared classifier statusbar/scripts/agent_state.py and
+the status segment's counting/rendering (pure functions, no tmux)."""
 import importlib.util
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location(
-    "indicator", ROOT / "statusbar" / "scripts" / "indicator.py"
-)
-ind = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ind)
+
+
+def load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+ags = load("agent_state", ROOT / "statusbar" / "scripts" / "agent_state.py")
+ind = load("indicator", ROOT / "statusbar" / "scripts" / "indicator.py")
 
 passed = 0
 
@@ -19,42 +26,70 @@ def check(cond, msg):
     passed += 1
 
 
-# --- parse_state ---
-p = ind.parse_state('{"tool":"pi","state":"busy","ts":1718000000.5,"detail":"working"}')
-check(p == ("pi", "busy", "working", 1718000000.5), f"parse busy: {p}")
-check(ind.parse_state("") is None, "empty -> None")
-check(ind.parse_state("{bad") is None, "malformed -> None")
-check(ind.parse_state('{"state":"bogus","ts":1}') is None, "unknown state -> None")
-check(ind.parse_state('{"state":"busy"}') is None, "missing ts -> None")
+# --- parse_payload ---
+p = ags.parse_payload('{"tool":"pi","state":"busy","ts":1718000000.5,"detail":"working"}')
+check(p["tool"] == "pi" and p["state"] == "busy" and p["ts"] == 1718000000.5, f"parse busy: {p}")
+check(ags.parse_payload("") is None, "empty -> None")
+check(ags.parse_payload("{bad") is None, "malformed -> None")
+check(ags.parse_payload('{"state":"bogus","ts":1}') is None, "unknown state -> None")
+check(ags.parse_payload('{"state":"busy"}') is None, "missing ts -> None")
 
 # --- display_state ---
-check(ind.display_state("busy", "working") == "running", "busy -> running")
-check(ind.display_state("waiting", "asking") == "needs-input", "waiting+asking -> needs-input")
-check(ind.display_state("waiting", "done") == "done", "waiting+done -> done")
-check(ind.display_state("waiting", "ready") is None, "waiting+ready -> not counted")
-check(ind.display_state("waiting", "") is None, "waiting no detail -> not counted")
+check(ags.display_state("busy", "working") == "running", "busy -> running")
+check(ags.display_state("waiting", "asking") == "needs-input", "waiting+asking -> needs-input")
+check(ags.display_state("waiting", "done") == "done", "waiting+done -> done")
+check(ags.display_state("waiting", "ready") == "ready", "waiting+ready -> ready")
+check(ags.display_state("waiting", "") == "ready", "waiting no detail -> ready")
 
-# --- classify: stale by process presence (shell foreground), not by ts ---
-done = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'   # ancient ts, still fine
-busy = '{"tool":"pi","state":"busy","ts":1,"detail":"working"}'
-check(ind.classify(done, "zsh") == "stale", "shell foreground -> stale")
-check(ind.classify(done, "-zsh") == "stale", "login shell (-zsh) -> stale")
-check(ind.classify(done, "bash") == "stale", "bash -> stale")
-check(ind.classify(done, "node") == "done", "agent process (node) -> trust state")
-check(ind.classify(done, "claude") == "done", "agent process (claude) -> trust state")
-check(ind.classify(busy, "claude") == "running", "busy + process -> running")
-check(ind.classify("", "node") is None, "no state -> None regardless of process")
+# --- classify: reader rules from PROTOCOL.md ---
+DONE = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'   # ancient ts, still fine
+ASKING = '{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}'
+BUSY = '{"tool":"claude","state":"busy","ts":1,"detail":"working"}'
+READY = '{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}'
 
-# --- count_stats / render_stats ---
+# 1. dead always wins
+c = ags.classify("1", "pi", ASKING)
+check(c["state"] == "dead" and c["rule"] == 1, "pane_dead wins over adapter")
+
+# 2. adapter present + foreground not a shell -> trusted regardless of ts age
+c = ags.classify("0", "node", ASKING)
+check(c["state"] == "needs-input" and c["source"] == "adapter" and c["rule"] == 2,
+      f"live adapter asking: {c}")
+check(ags.classify("0", "claude", DONE)["state"] == "done", "live adapter done")
+c = ags.classify("0", "node", BUSY)
+check(c["state"] == "running" and c["tool"] == "claude", f"live adapter busy: {c}")
+check(ags.classify("0", "node", READY)["state"] == "ready", "live adapter ready")
+
+# 3. adapter present + foreground is a shell -> stale (adapter process gone)
+c = ags.classify("0", "zsh", DONE)
+check(c["state"] == "stale" and c["tool"] == "pi" and c["rule"] == 3, f"shell foreground: {c}")
+check(ags.classify("0", "-zsh", DONE)["state"] == "stale", "login shell (-zsh) -> stale")
+check(ags.classify("0", "bash", BUSY)["state"] == "stale", "bash -> stale")
+
+# 4. no adapter + shell foreground -> shell (idle)
+c = ags.classify("0", "zsh", "")
+check(c["state"] == "shell" and c["tool"] == "shell" and c["rule"] == 4, f"plain shell: {c}")
+
+# 5. otherwise -> untracked
+c = ags.classify("0", "vim", "")
+check(c["state"] == "untracked" and c["rule"] == 5, f"untracked: {c}")
+
+# malformed / missing-ts payloads are not trusted
+check(ags.classify("0", "node", "{bad")["state"] == "untracked", "malformed -> untracked")
+check(ags.classify("0", "node", '{"state":"busy"}')["state"] == "untracked", "missing ts -> untracked")
+check(ags.classify("0", "zsh", '{"state":"busy"}')["state"] == "shell", "missing ts + shell -> shell")
+
+# --- indicator: count_stats / render_stats ---
 entries = [
-    ('{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}', "claude"),
-    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "claude"),
-    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "claude"),
-    ('{"tool":"pi","state":"busy","ts":1,"detail":"working"}', "codex"),
-    ('{"tool":"pi","state":"waiting","ts":1,"detail":"done"}', "zsh"),   # shell -> stale
-    ('{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}', "claude"),  # not counted
-    ("garbage", "claude"),
-    ("", "claude"),
+    (ASKING, "claude", "0"),
+    (DONE, "claude", "0"),
+    (DONE, "claude", "0"),
+    (BUSY, "codex", "0"),
+    (DONE, "zsh", "0"),      # shell -> stale
+    (READY, "claude", "0"),  # ready: not counted
+    (ASKING, "claude", "1"), # dead: not counted
+    ("garbage", "claude", "0"),
+    ("", "claude", "0"),
 ]
 counts = ind.count_stats(entries)
 check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1}, f"counts: {counts}")

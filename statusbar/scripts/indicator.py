@@ -37,20 +37,20 @@ Config (env, mainly for tests):
   TMUX_STATUS_COLORIZE        colorize.sh path override; empty disables refresh
   TMUX_STATUS_CHIPS_REFRESH   min seconds between chips refreshes (default 15)
 
-State mapping (@agent-state wire -> display, reader rules from PROTOCOL.md):
-  busy                          -> running
-  waiting + detail=asking       -> needs-input   (agent is asking you)
-  waiting + detail=done         -> done          (agent finished a turn)
-  waiting + detail=ready        -> (not counted) (idle)
-  @agent-state present but the pane foreground is a shell (adapter process
-  gone — no heartbeat in this protocol) -> stale
+State mapping (@agent-state wire -> display) and the PROTOCOL.md reader rules
+live in the shared module agent_state.py (same directory) — also used by
+colorize.sh, explain.py and tmux-viz. Only the four counted states appear
+here; ready/shell/untracked/dead panes are not counted.
 """
 from __future__ import annotations
 
-import json
 import os
 import subprocess
+import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import agent_state
 
 TMUX = os.environ.get("TMUX_STATUS_TMUX", "tmux")  # test/override hook
 CHIPS_REFRESH = float(os.environ.get("TMUX_STATUS_CHIPS_REFRESH", "15"))
@@ -68,9 +68,6 @@ DEFAULT_COLORS = {
     "running": "colour68",
 }
 
-# pane_current_command values that mean "no agent process is running"
-SHELLS = {"zsh", "bash", "fish", "sh", "dash", "tcsh", "ksh", "nu"}
-
 
 def _tmux(args: list[str]) -> str:
     r = subprocess.run(TMUX.split() + args, capture_output=True, text=True)
@@ -86,56 +83,17 @@ def is_on(value: str) -> bool:
     return value.strip().lower() in ("on", "true", "yes", "1")
 
 
-def parse_state(raw: str):
-    """Parse an @agent-state payload -> (tool, state, detail, ts) or None."""
-    if not raw:
-        return None
-    try:
-        d = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(d, dict):
-        return None
-    st = d.get("state")
-    if st not in ("busy", "waiting"):
-        return None
-    ts = d.get("ts")
-    if not isinstance(ts, (int, float)):
-        return None
-    return (str(d.get("tool") or "?"), st, str(d.get("detail") or ""), ts)
-
-
-def display_state(state: str, detail: str):
-    """Map wire state -> display state (None = not counted)."""
-    if state == "busy":
-        return "running"
-    if detail == "asking":
-        return "needs-input"
-    if detail == "done":
-        return "done"
-    return None  # waiting + ready: idle
-
-
-def classify(state_raw: str, cmd: str):
-    """@agent-state payload + pane current command -> display state or None.
-
-    stale is decided by process presence, not ts: with no heartbeat, a pane
-    whose foreground is a shell no longer runs its adapter.
-    """
-    p = parse_state(state_raw)
-    if not p:
-        return None
-    if cmd.lstrip("-") in SHELLS:
-        return "stale"
-    return display_state(p[1], p[2])
-
-
 def count_stats(entries) -> dict:
-    """entries: list of (state_raw, pane_current_command)."""
+    """entries: list of (state_raw, pane_current_command, pane_dead).
+
+    Classification is the shared agent_state.classify; only the four counted
+    display states appear in the status segment — ready/shell/untracked/dead
+    panes are skipped.
+    """
     counts = {k: 0 for k in ORDER}
-    for raw, cmd in entries:
-        ds = classify(raw, cmd)
-        if ds:
+    for raw, cmd, dead in entries:
+        ds = agent_state.classify(dead, cmd, raw)["state"]
+        if ds in counts:
             counts[ds] += 1
     return counts
 
@@ -240,9 +198,9 @@ def main() -> None:
         if len(f) < 5:
             continue
         sess, pane_id, dead, cmd, raw = f[0], f[1], f[2], f[3], "\t".join(f[4:])
-        if sess != session or dead == "1":
+        if sess != session:
             continue
-        entries.append((raw, cmd))
+        entries.append((raw, cmd, dead))
 
     refresh_chips(window, time.time())
     print(render_stats(count_stats(entries), colors))

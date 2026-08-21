@@ -21,7 +21,10 @@ Reader rules (per pane, PROTOCOL.md — explicit signals only, no guessing):
     4. no @agent-state, foreground is a shell        -> shell (idle)
     5. otherwise                                     -> untracked
 
-Display states (wire -> display, same mapping as statusbar/scripts/indicator.py):
+Classification lives in the shared module statusbar/scripts/agent_state.py
+(also used by the status segment, colorize.sh and explain.py).
+
+Display states (wire -> display):
     busy               -> running     (▶)
     waiting + asking   -> needs-input (?)   the only attention state
     waiting + done     -> done        (✓)
@@ -36,12 +39,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import socket
 import subprocess
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
+
+sys.path.insert(
+    0,
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "statusbar", "scripts"),
+)
+import agent_state
 
 TMUX = "tmux"
 HOST = socket.gethostname()
@@ -60,7 +71,15 @@ PANE_FMT = "\t".join([
 # detail page also reads the last-interaction I/O option
 PANE_FMT_IO = PANE_FMT + "\t" + "#{@agent-io}"
 
-SHELLS = {"zsh", "bash", "fish", "sh", "dash", "tcsh", "ksh", "nu"}
+# ---------- state classification (shared module: statusbar/scripts/agent_state.py) ----------
+
+# re-exported for callers/tests that import them from here
+display_state = agent_state.display_state
+
+
+def _classify(p: dict) -> dict:
+    """Reader rules -> {tool, state, source, ts, rule} (see agent_state.py)."""
+    return agent_state.classify(p["dead"], p["cmd"], p["agent_state"])
 
 # display-state priority for window/session aggregation: the first state
 # present wins. needs-input is the only attention state, so it always leads.
@@ -102,42 +121,17 @@ def _parse(line: str) -> dict | None:
     if len(f) < 11:
         return None
     # 12th field (@agent-state) may be missing on older tmux / empty panes
-    agent_state = f[11] if len(f) > 11 else ""
+    state_raw = f[11] if len(f) > 11 else ""
     return {
         "session": f[0], "windex": f[1], "wname": f[2],
         "pindex": f[3], "pid": f[4], "pw": f[5], "ph": f[6],
         "title": f[7], "dead": f[8], "active": f[9], "cmd": f[10],
-        "agent_state": agent_state,
+        "agent_state": state_raw,
         "io_raw": f[12] if len(f) > 12 else "",
     }
 
 
-# ---------- state classification (explicit only, PROTOCOL.md reader rules) ----------
-
-
-def _adapter(raw: str) -> dict | None:
-    if not raw:
-        return None
-    try:
-        d = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(d, dict) or d.get("state") not in ("waiting", "busy"):
-        return None
-    if not isinstance(d.get("ts"), (int, float)):
-        return None
-    return d
-
-
-def display_state(state: str, detail: str) -> str:
-    """Wire state -> display state (same mapping as indicator.py)."""
-    if state == "busy":
-        return "running"
-    if detail == "asking":
-        return "needs-input"
-    if detail == "done":
-        return "done"
-    return "ready"
+# ---------- state classification: shared module (imported above) ----------
 
 
 def _io(raw: str) -> dict | None:
@@ -152,30 +146,6 @@ def _io(raw: str) -> dict | None:
         return None
     return {"input": str(d.get("input", "")), "output": str(d.get("output", "")),
             "ts": d.get("ts")}
-
-
-def _classify(p: dict) -> dict:
-    """Return {tool, state, source, ts} from explicit signals only.
-
-    Liveness is a tmux fact (pane_current_command), never ts: a live adapter's
-    state is trusted no matter how old, a shell foreground means the adapter
-    process is gone (stale). No ps / screen-content guessing.
-    """
-    if p["dead"] == "1":
-        return {"tool": "?", "state": "dead", "source": "-", "ts": None}
-    adapter = _adapter(p["agent_state"])
-    cmd = p["cmd"].lstrip("-")
-    if adapter:
-        tool = adapter.get("tool") or "?"
-        if cmd in SHELLS:
-            return {"tool": tool, "state": "stale", "source": "adapter",
-                    "ts": adapter.get("ts")}
-        return {"tool": tool,
-                "state": display_state(adapter["state"], adapter.get("detail") or ""),
-                "source": "adapter", "ts": adapter.get("ts")}
-    if cmd in SHELLS:
-        return {"tool": "shell", "state": "shell", "source": "tmux", "ts": None}
-    return {"tool": "?", "state": "untracked", "source": "tmux", "ts": None}
 
 
 def _agg(panes: list[dict]) -> str:

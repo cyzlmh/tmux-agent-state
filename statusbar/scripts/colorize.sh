@@ -40,6 +40,8 @@ set -euo pipefail
 read -r -a TMUX_CMD <<< "${TMUX_STATUS_TMUX:-tmux}"
 command -v "${TMUX_CMD[0]}" >/dev/null 2>&1 || exit 0
 
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 tmux_get_option_or_default() {
     if [ -n "$("${TMUX_CMD[@]}" show-option -gq "$1" 2>/dev/null || true)" ]; then
         "${TMUX_CMD[@]}" show-option -gqv "$1"
@@ -48,9 +50,11 @@ tmux_get_option_or_default() {
     fi
 }
 
-# read_state <pane>: sets DS (display state: needs-input|done|stale|running|"")
-# The payload is parsed with python3 (same JSON parser as indicator.py), so
-# any conforming adapter payload works regardless of key order or whitespace.
+# read_state <pane>: sets DS (display state: needs-input|done|stale|running|
+# anything else — only the four coloured states get chips, see color_for)
+# The wire->display mapping comes from the shared agent_state.py module
+# (same JSON parser as indicator.py / tmux-viz), so any conforming adapter
+# payload works regardless of key order or whitespace.
 # stale is decided by process presence, not ts: with no heartbeat, a pane
 # whose foreground is a shell no longer runs its adapter (PROTOCOL.md).
 read_state() {
@@ -65,20 +69,7 @@ read_state() {
             return 0
             ;;
     esac
-    DS=$(AGENT_STATE="$raw" python3 -c '
-import json, os
-try:
-    d = json.loads(os.environ["AGENT_STATE"])
-    st = d.get("state")
-except (ValueError, TypeError):
-    raise SystemExit(0)
-if st == "busy":
-    print("running")
-elif st == "waiting" and d.get("detail") == "asking":
-    print("needs-input")
-elif st == "waiting" and d.get("detail") == "done":
-    print("done")
-' 2>/dev/null) || DS=""
+    DS=$(AGENT_STATE="$raw" python3 "$SCRIPTS_DIR/agent_state.py" wire-state 2>/dev/null) || DS=""
 }
 
 color_for() {
