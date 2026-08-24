@@ -123,7 +123,7 @@ case "$state" in
     *) echo "agent-state.sh: bad state '$state' (waiting|busy)" >&2; exit 1 ;;
 esac
 
-now="$(date +%s)"
+now="$(python3 -c 'import time; print(f"{time.time():.6f}")')"
 payload=$(printf '{"tool":"%s","state":"%s","ts":%s,"detail":"%s"}' \
     "$agent" "$state" "$now" "$detail")
 "${TMUX_CMD[@]}" set-option -p -t "$pane" @agent-state "$payload"
