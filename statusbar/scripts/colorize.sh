@@ -51,7 +51,7 @@ tmux_get_option_or_default() {
 }
 
 # read_state <pane>: sets DS (display state: needs-input|done|stale|running|
-# anything else — only the four coloured states get chips, see color_for)
+# bg | anything else — only the five coloured states get chips, see color_for)
 # The wire->display mapping comes from the shared agent_state.py module
 # (same JSON parser as indicator.py / tmux-viz), so any conforming adapter
 # payload works regardless of key order or whitespace.
@@ -78,6 +78,7 @@ color_for() {
         done) tmux_get_option_or_default "@agent-status-color-done" "colour108" ;;
         stale) tmux_get_option_or_default "@agent-status-color-stale" "colour167" ;;
         running) tmux_get_option_or_default "@agent-status-color-running" "colour68" ;;
+        bg) tmux_get_option_or_default "@agent-status-color-bg" "colour172" ;;
         *) printf '' ;;
     esac
 }

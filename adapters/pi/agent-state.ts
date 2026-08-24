@@ -16,7 +16,8 @@
  * agent_start -> busy, agent_settled -> waiting). There is deliberately NO
  * tool-name guessing: pi exposes no event for "UI waiting for user input",
  * so an agent blocked on a question tool reports busy until the turn
- * settles. detail is a display hint only (ready/working/done).
+ * settles. detail is a display hint only (ready/working/done, plus bg
+ * while bg-tasks has running jobs).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -57,6 +58,19 @@ type QuestionFlag = { active: true; since: number } | undefined;
 
 function questionFlag(): QuestionFlag {
   return (globalThis as Record<string, unknown>).__tmuxPanelQuestion as QuestionFlag;
+}
+
+// Shared flag with the bg-tasks extension (same pi process): it publishes
+// the number of running background tasks as __piBgTasksRunning (undefined
+// when zero) and pokes __tmuxAgentStateRefresh on count changes. While
+// waiting with tasks in flight we report detail=bg, so tmux can tell
+// "idle with background work" apart from a plain done.
+function bgRunning(): number {
+  return (
+    ((globalThis as Record<string, unknown>).__piBgTasksRunning as
+      | number
+      | undefined) ?? 0
+  );
 }
 
 /** Pull plain text out of an assistant message's content (string | content blocks). */
@@ -124,7 +138,7 @@ export default function agentState(pi: ExtensionAPI): void {
     // While the question tool is waiting for the user, report waiting/asking
     // (its since) instead of our in-memory busy state.
     const s: State = q?.active ? "waiting" : state;
-    const d = q?.active ? "asking" : detail;
+    const d = q?.active ? "asking" : s === "waiting" && bgRunning() > 0 ? "bg" : detail;
     const sn = q?.active && q.since ? q.since : since;
     const payload = JSON.stringify({
       tool: TOOL,
@@ -170,11 +184,20 @@ export default function agentState(pi: ExtensionAPI): void {
     detail = "";
     lastInput = "";
     lastOutput = "";
+    (globalThis as Record<string, unknown>).__tmuxAgentStateRefresh = undefined;
     tmux(["set-option", "-u", "-p", "-t", pane, OPTION]);
     tmux(["set-option", "-u", "-p", "-t", pane, OPTION_IO]);
   }
 
   // --- state (deterministic events only) ---
+
+  // bg-tasks pokes this when its running-task count changes (e.g. a task
+  // finishes while the agent sits waiting) so the state is re-written
+  // immediately instead of waiting for the next turn transition.
+  (globalThis as Record<string, unknown>).__tmuxAgentStateRefresh = () => {
+    writeState();
+    colorize();
+  };
 
   pi.on("session_start", () => {
     set("waiting", "ready");

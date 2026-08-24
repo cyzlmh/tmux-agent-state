@@ -18,6 +18,7 @@ Reader rules (precedence, explicit signals only — no guessing):
 Display states (wire -> display):
     busy               -> running
     waiting + asking   -> needs-input   the only attention state
+    waiting + bg       -> bg            idle, background tasks still running
     waiting + done     -> done
     waiting (other)    -> ready
     plus stale / shell / untracked / dead
@@ -26,8 +27,8 @@ CLI for shell consumers (colorize.sh):
 
     AGENT_STATE='<json>' python3 agent_state.py wire-state
 
-prints the display state for a wire payload (running | needs-input | done |
-ready), nothing for a missing/unusable payload.
+prints the display state for a wire payload (running | needs-input | bg |
+done | ready), nothing for a missing/unusable payload.
 
     python3 agent_state.py scan
 
@@ -102,6 +103,8 @@ def display_state(state: str, detail: str) -> str:
         return "running"
     if detail == "asking":
         return "needs-input"
+    if detail == "bg":
+        return "bg"
     if detail == "done":
         return "done"
     return "ready"

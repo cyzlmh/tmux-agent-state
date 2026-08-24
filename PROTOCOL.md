@@ -79,6 +79,10 @@ A single-line JSON string (no tabs, no newlines) stored as the option value:
   `question` extension) write `waiting` + `detail=asking` while they block
   on user input, because the tool itself knows it is waiting. Writers that
   do not actually block must never emit `asking`.
+- `detail=bg` means the agent is idle for user input but reports background
+  tasks still running (pi's `bg-tasks` extension publishes the count
+  in-process). Readers may render it as a distinct display state (`bg`),
+  but like `done` it is **not** an attention state.
 
 Reliability: `state` and `asking` are driven by deterministic facts only
 (events + the blocking tool's own knowledge). Nothing is inferred from tool

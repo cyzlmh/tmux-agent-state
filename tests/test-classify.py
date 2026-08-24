@@ -37,6 +37,7 @@ check(ags.parse_payload('{"state":"busy"}') is None, "missing ts -> None")
 # --- display_state ---
 check(ags.display_state("busy", "working") == "running", "busy -> running")
 check(ags.display_state("waiting", "asking") == "needs-input", "waiting+asking -> needs-input")
+check(ags.display_state("waiting", "bg") == "bg", "waiting+bg -> bg")
 check(ags.display_state("waiting", "done") == "done", "waiting+done -> done")
 check(ags.display_state("waiting", "ready") == "ready", "waiting+ready -> ready")
 check(ags.display_state("waiting", "") == "ready", "waiting no detail -> ready")
@@ -46,6 +47,7 @@ DONE = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'   # ancient ts, 
 ASKING = '{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}'
 BUSY = '{"tool":"claude","state":"busy","ts":1,"detail":"working"}'
 READY = '{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}'
+BG = '{"tool":"pi","state":"waiting","ts":1,"detail":"bg"}'
 
 # 1. dead always wins
 c = ags.classify("1", "pi", ASKING)
@@ -87,12 +89,13 @@ entries = [
     (BUSY, "codex", "0"),
     (DONE, "zsh", "0"),      # shell -> stale
     (READY, "claude", "0"),  # ready: not counted
+    (BG, "pi", "0"),         # bg: counted
     (ASKING, "claude", "1"), # dead: not counted
     ("garbage", "claude", "0"),
     ("", "claude", "0"),
 ]
 counts = ind.count_stats(entries)
-check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1}, f"counts: {counts}")
+check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1, "bg": 1}, f"counts: {counts}")
 
 r = ind.render_stats(counts, ind.DEFAULT_COLORS)
 check("?1" in r and "colour180" in r and "bold" in r, f"needs-input segment: {r}")

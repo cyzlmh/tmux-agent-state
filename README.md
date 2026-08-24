@@ -133,7 +133,8 @@ aggregate counts instead of per-pane detail:
 
 Zero counts are omitted; an empty session shows nothing. Config:
 `@agent-status-scope` (session|window), `@agent-status-color-*` (defaults:
-needs-input colour180, done colour108, stale colour167, running colour68),
+needs-input colour180, done colour108, stale colour167, running colour68,
+bg colour172),
 `@agent-status-theme` (on|off).
 
 **2. Window-label colour chips** — each window's label in the window list
@@ -166,6 +167,7 @@ Wire state -> display mapping (deterministic facts only):
 | ----------------------- | ------------------ |
 | `busy`                  | running (blue)     |
 | `waiting` + asking      | needs-input (sand, bold)
+| `waiting` + bg          | bg (orange) — idle, background tasks still running
 | `waiting` + done        | done (sage)       |
 | `waiting` + ready       | (not counted)      |
 | adapter present, pane foreground is a shell | stale (soft red) |
@@ -188,6 +190,7 @@ the only colours.
 | needs-input   | agent is asking for input     | colour180 | `#d7af87` | `?` bold |
 | done          | agent finished a turn         | colour108 | `#87af87` | `✓`      |
 | running       | agent is busy                 | colour68  | `#5f87d7` | `▶`      |
+| bg            | idle, background tasks running | colour172 | `#d78700` | `◐`      |
 | stale         | adapter gone, state lingering | colour167 | `#d75f5f` | `!`      |
 | ready / shell / untracked / dead | informational only | — | muted grey | `·` / `✕` |
 

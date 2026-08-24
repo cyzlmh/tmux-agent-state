@@ -24,6 +24,7 @@ Config (tmux global user options, e.g. `set -g @agent-status-scope window`):
   @agent-status-color-done        done colour                (default colour108)
   @agent-status-color-stale       stale colour               (default colour167)
   @agent-status-color-running     running colour             (default colour68)
+  @agent-status-color-bg          bg colour                  (default colour172)
 
 Chips refresh: this script doubles as the periodic trigger for colorize.sh
 (window-label colour chips). Adapters only invoke colorize.sh on state
@@ -39,7 +40,7 @@ Config (env, mainly for tests):
 
 State mapping (@agent-state wire -> display) and the PROTOCOL.md reader rules
 live in the shared module agent_state.py (same directory) — also used by
-colorize.sh, explain.py and tmux-viz. Only the four counted states appear
+colorize.sh, explain.py and tmux-viz. Only the five counted states appear
 here; ready/shell/untracked/dead panes are not counted.
 """
 from __future__ import annotations
@@ -59,13 +60,14 @@ COLORIZE = os.environ.get(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "colorize.sh"),
 )
 
-SYMBOLS = {"needs-input": "?", "done": "✓", "stale": "!", "running": "▶"}
-ORDER = ["needs-input", "done", "stale", "running"]
+SYMBOLS = {"needs-input": "?", "done": "✓", "stale": "!", "running": "▶", "bg": "◐"}
+ORDER = ["needs-input", "done", "stale", "running", "bg"]
 DEFAULT_COLORS = {
     "needs-input": "colour180",
     "done": "colour108",
     "stale": "colour167",
     "running": "colour68",
+    "bg": "colour172",
 }
 
 
@@ -86,7 +88,7 @@ def is_on(value: str) -> bool:
 def count_stats(entries) -> dict:
     """entries: list of (state_raw, pane_current_command, pane_dead).
 
-    Classification is the shared agent_state.classify; only the four counted
+    Classification is the shared agent_state.classify; only the five counted
     display states appear in the status segment — ready/shell/untracked/dead
     panes are skipped.
     """

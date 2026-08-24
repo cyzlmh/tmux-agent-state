@@ -27,6 +27,7 @@ Classification lives in the shared module statusbar/scripts/agent_state.py
 Display states (wire -> display):
     busy               -> running     (▶)
     waiting + asking   -> needs-input (?)   the only attention state
+    waiting + bg       -> bg          (◐)   idle, background tasks running
     waiting + done     -> done        (✓)
     waiting (other)    -> ready       (·)
     plus stale (!) / shell / untracked / dead (✕)
@@ -83,7 +84,7 @@ def _classify(p: dict) -> dict:
 
 # display-state priority for window/session aggregation: the first state
 # present wins. needs-input is the only attention state, so it always leads.
-PRIORITY = ["needs-input", "stale", "running", "done",
+PRIORITY = ["needs-input", "stale", "running", "bg", "done",
             "ready", "shell", "untracked", "dead"]
 
 _ANSI_RE = re.compile(
@@ -249,6 +250,7 @@ def collect_window(session: str, index: str, lines: int = 250) -> dict:
 #   needs-input colour180 #d7af87 (the only attention colour, bold)
 #   done        colour108 #87af87
 #   running     colour68  #5f87d7
+#   bg          colour172 #d78700
 #   stale       colour167 #d75f5f
 #   chrome      bg colour234 #1c1c1c / panel #262626 / line #3a3a3a /
 #               fg colour250 #bcbcbc / muted #808080
@@ -256,7 +258,7 @@ _STYLE = """
 :root{
   --bg:#1c1c1c;--panel:#262626;--line:#3a3a3a;--sunken:#161616;
   --fg:#bcbcbc;--muted:#808080;
-  --needs:#d7af87;--done:#87af87;--run:#5f87d7;--stale:#d75f5f;
+  --needs:#d7af87;--done:#87af87;--run:#5f87d7;--bgc:#d78700;--stale:#d75f5f;
 }
 body{font:15px/1.5 -apple-system,system-ui,sans-serif;margin:0;background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%}
 header{padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2;font-size:13px}
@@ -286,11 +288,13 @@ a{color:var(--run);text-decoration:none}
 .needs-input{color:var(--needs);font-weight:600}
 .done{color:var(--done)}
 .running{color:var(--run)}
+.bg{color:var(--bgc)}
 .stale{color:var(--stale)}
 .dead,.ready,.shell,.untracked{color:var(--muted);font-weight:400}
 .dot.needs-input{background:var(--needs)}
 .dot.done{background:var(--done)}
 .dot.running{background:var(--run)}
+.dot.bg{background:var(--bgc)}
 .dot.stale{background:var(--stale)}
 .dot.dead,.dot.ready,.dot.shell,.dot.untracked,.dot.empty{background:var(--muted)}
 .detail{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
@@ -321,8 +325,8 @@ OVERVIEW_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <div id="root"></div>
 <script>
 const esc = s => (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const PRIORITY = ['needs-input','stale','running','done','ready','shell','untracked','dead'];
-const SYM = {'needs-input':'?','done':'✓','running':'▶','stale':'!','dead':'✕'};
+const PRIORITY = ['needs-input','stale','running','bg','done','ready','shell','untracked','dead'];
+const SYM = {'needs-input':'?','done':'✓','running':'▶','bg':'◐','stale':'!','dead':'✕'};
 const sym = s => SYM[s] || '·';
 const agg = panes => {const set=new Set(panes.map(p=>p.state));for(const s of PRIORITY)if(set.has(s))return s;return 'empty';};
 const age = ts => {if(!ts)return'';const s=Math.max(0,Date.now()/1000-ts);
@@ -335,12 +339,12 @@ async function refresh(){
   try{
     const d = await (await fetch('/api/overview')).json();
     const t = d.totals;
-    const tally = {'needs-input':0,done:0,stale:0,running:0};
+    const tally = {'needs-input':0,done:0,stale:0,running:0,bg:0};
     for(const w of d.windows) for(const p of w.panes) if(p.state in tally) tally[p.state]++;
     const seg = k => tally[k] ? `<span class="${k}">${sym(k)}${tally[k]}</span>` : '';
     document.getElementById('meta').innerHTML =
       [`${t.sessions}s · ${t.windows}w · ${t.panes}p`, seg('needs-input'), seg('done'),
-       seg('stale'), seg('running'), new Date().toLocaleTimeString()].filter(Boolean).join(' · ');
+       seg('stale'), seg('running'), seg('bg'), new Date().toLocaleTimeString()].filter(Boolean).join(' · ');
     const root = document.getElementById('root'); root.innerHTML='';
     if(!d.windows.length){root.innerHTML='<div class="empty">no tmux sessions</div>';return;}
     const bySess = {};
@@ -405,7 +409,7 @@ def detail_html(session: str, index: str, name: str) -> str:
 <script>
 const au = new AnsiUp();
 const esc = s => (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const SYM = {'needs-input':'?','done':'✓','running':'▶','stale':'!','dead':'✕'};
+const SYM = {'needs-input':'?','done':'✓','running':'▶','bg':'◐','stale':'!','dead':'✕'};
 const sym = s => SYM[s] || '·';
 const KEY = """ + json.dumps(key) + """;
 let panes=[], sel=null, mode='last', paused=false;

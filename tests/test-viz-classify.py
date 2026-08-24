@@ -31,6 +31,7 @@ READY = '{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}'
 # --- display_state (wire -> display, same mapping as indicator.py) ---
 check(viz.display_state("busy", "working") == "running", "busy -> running")
 check(viz.display_state("waiting", "asking") == "needs-input", "waiting+asking -> needs-input")
+check(viz.display_state("waiting", "bg") == "bg", "waiting+bg -> bg")
 check(viz.display_state("waiting", "done") == "done", "waiting+done -> done")
 check(viz.display_state("waiting", "ready") == "ready", "waiting+ready -> ready")
 check(viz.display_state("waiting", "") == "ready", "waiting no detail -> ready")
@@ -75,6 +76,8 @@ check(viz._agg([]) == "empty", "no panes -> empty")
 check(viz._agg([p("done"), p("needs-input"), p("running")]) == "needs-input", "needs-input leads")
 check(viz._agg([p("done"), p("stale"), p("running")]) == "stale", "stale over running/done")
 check(viz._agg([p("done"), p("running")]) == "running", "running over done")
+check(viz._agg([p("done"), p("bg")]) == "bg", "bg over done")
+check(viz._agg([p("bg"), p("running")]) == "running", "running over bg")
 check(viz._agg([p("done"), p("shell")]) == "done", "done over shell")
 check(viz._agg([p("dead"), p("dead")]) == "dead", "all dead -> dead")
 
