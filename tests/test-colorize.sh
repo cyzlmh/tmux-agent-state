@@ -72,4 +72,23 @@ run_colorize "$P2"
     || fail "layout order top->bottom: $(get_chips "$WIN")"
 pass "layout order: top pane first"
 
+# 6. unfinished turns get an alert chip, not the done colour: a truncated turn
+#    (model hit its output limit) and a failed turn are red, and they outrank
+#    done in the chip sequence.
+tmux_cmd set-option -p -t "$PANE" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"truncated\"}"
+tmux_cmd set-option -p -t "$P2" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"error\"}"
+run_colorize "$P2"
+[ "$(get_chips "$WIN")" = "#[bg=colour167] #[default]#[bg=colour167] #[default]" ] \
+    || fail "truncated+error chips should be red: $(get_chips "$WIN")"
+pass "truncated/error -> alert chips"
+
+tmux_cmd set-option -p -t "$PANE" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"busy\",\"ts\":$NOW,\"detail\":\"working\"}"
+run_colorize "$P2"
+[ "$(get_chips "$WIN")" = "#[bg=colour68] #[default]#[bg=colour167] #[default]" ] \
+    || fail "a new running turn must outrank a stale error: $(get_chips "$WIN")"
+pass "running turn outranks a stale unfinished detail"
+
 echo "PASS: test-colorize"

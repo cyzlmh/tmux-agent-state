@@ -27,6 +27,8 @@ ASKING = '{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}'   # ancient 
 DONE = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'
 BUSY = '{"tool":"claude","state":"busy","ts":1,"detail":"working"}'
 READY = '{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}'
+TRUNC = '{"tool":"pi","state":"waiting","ts":1,"detail":"truncated"}'
+ERROR = '{"tool":"pi","state":"waiting","ts":1,"detail":"error"}'
 
 # --- display_state (wire -> display, same mapping as indicator.py) ---
 check(viz.display_state("busy", "working") == "running", "busy -> running")
@@ -35,6 +37,13 @@ check(viz.display_state("waiting", "bg") == "bg", "waiting+bg -> bg")
 check(viz.display_state("waiting", "done") == "done", "waiting+done -> done")
 check(viz.display_state("waiting", "ready") == "ready", "waiting+ready -> ready")
 check(viz.display_state("waiting", "") == "ready", "waiting no detail -> ready")
+check(viz.display_state("waiting", "truncated") == "truncated",
+      "waiting+truncated -> truncated")
+check(viz.display_state("waiting", "error") == "error", "waiting+error -> error")
+# a new running turn outranks a stale truncated/error detail
+check(viz.display_state("busy", "truncated") == "running",
+      "busy+truncated -> running")
+check(viz.display_state("busy", "error") == "running", "busy+error -> running")
 
 # --- _classify: reader rules from PROTOCOL.md ---
 # 1. dead always wins
@@ -50,6 +59,16 @@ c = viz._classify(pane("node", BUSY))
 check(c["state"] == "running" and c["tool"] == "claude", f"live adapter busy: {c}")
 c = viz._classify(pane("node", READY))
 check(c["state"] == "ready", f"live adapter ready: {c}")
+check(viz._classify(pane("pi", TRUNC))["state"] == "truncated",
+      "live adapter truncated")
+check(viz._classify(pane("pi", ERROR))["state"] == "error", "live adapter error")
+# truncated/error outrank stale in the aggregation priority
+check(viz.PRIORITY.index("truncated") < viz.PRIORITY.index("stale"),
+      "truncated ranks above stale in PRIORITY")
+check(viz.PRIORITY.index("error") < viz.PRIORITY.index("stale"),
+      "error ranks above stale in PRIORITY")
+check(viz.PRIORITY.index("needs-input") < viz.PRIORITY.index("truncated"),
+      "needs-input still leads PRIORITY")
 
 # 3. adapter present + foreground is a shell -> stale (adapter process gone)
 c = viz._classify(pane("zsh", DONE))

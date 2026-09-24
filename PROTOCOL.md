@@ -75,18 +75,31 @@ A single-line JSON string (no tabs, no newlines) stored as the option value:
   would otherwise be misreported stale.
 - `detail` is mostly a **display hint** (`ready` / `working` / `done`);
   readers MUST NOT use it to decide whether a pane needs attention — except
-  `detail=asking`, which is reliable: interactive tools (e.g. pi's
-  `question` extension) write `waiting` + `detail=asking` while they block
-  on user input, because the tool itself knows it is waiting. Writers that
-  do not actually block must never emit `asking`.
+  `detail=asking`, which is reliable: it is written only while the agent is
+  genuinely blocked on the user — by the blocking tool itself (e.g. pi's
+  `question` extension) or by the agent's own "a blocking UI prompt is open"
+  event (pi's `ui_prompt_start`/`ui_prompt_end`, claude's `Notification` with a
+  needs-input type). Writers that do not actually block must never emit
+  `asking`.
 - `detail=bg` means the agent is idle for user input but reports background
   tasks still running (pi's `bg-tasks` extension publishes the count
   in-process). Readers may render it as a distinct display state (`bg`),
   but like `done` it is **not** an attention state.
+- `detail=truncated` / `detail=error` mean the turn ended **without
+  finishing**: `truncated` is the model stopping at its output limit (pi's
+  `stopReason: "length"`, which pi's own UI shows as "Response was truncated
+  before completion."), `error` is a failed run. Both are written with
+  `state=waiting` — the agent really is idle and waiting for you — but they are
+  **not** `done`: readers SHOULD surface them as a distinct non-success display
+  state so an unfinished turn is visible without reading the transcript. A new
+  turn (a fresh `busy` write) supersedes them, so they never linger past the
+  next prompt. A user-cancelled turn (`stopReason: "aborted"`) is deliberate
+  and reports plain `done`.
 
 Reliability: `state` and `asking` are driven by deterministic facts only
 (events + the blocking tool's own knowledge). Nothing is inferred from tool
-names or screen content.
+names or screen content. `truncated`/`error` come from the agent's own
+reported stop reason, not from inspecting the output text.
 
 ## Writer rules
 
@@ -186,11 +199,28 @@ Payload (single-line JSON):
 
 | tool        | adapter form                         | events / hooks that map to states                         |
 | ----------- | ------------------------------------ | --------------------------------------------------------- |
-| **pi**      | TypeScript extension (this repo)     | `input`/`agent_start`→busy, `agent_settled`→waiting, blocking tool→waiting/asking |
-| **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`ElicitationResult`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
-| **codex**   | `~/.codex/hooks.json` hooks          | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`→busy, `PermissionRequest`→waiting/asking, `Stop`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
-| **kimi**    | `~/.kimi-code/config.toml` hooks     | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PermissionResult`→busy, `PermissionRequest`→waiting/asking, `Stop`/`StopFailure`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **pi**      | TypeScript extension (this repo)     | `input`/`agent_start`→busy, `agent_settled`→waiting (`done` / `truncated` / `error` from the turn's stop reason), `ui_prompt_start`/`ui_prompt_end`→waiting/asking (pi ≥ 0.84.4), blocking tool→waiting/asking |
+| **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`ElicitationResult`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Notification` (needs-input types only)→waiting/asking, `Stop`/`StopFailure`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **codex**   | `~/.codex/hooks.json` hooks          | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`→busy, `PermissionRequest`→waiting/asking, `Stop`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **kimi**    | `~/.kimi-code/config.toml` hooks     | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`PermissionResult`→busy, `PermissionRequest`→waiting/asking, `Stop`/`StopFailure`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
 | **zsh**     | none — `pane_current_command=zsh` ⇒ waiting (tmux fact, exact) | |
+
+Notes on the hook adapters:
+
+- **Interrupt/StopFailure matter.** A turn that ends by interrupt (Esc) or by an
+  API error does not always fire the agent's normal `Stop` event. codex does not
+  fire `Stop` on interrupt at all, and claude fires `StopFailure` instead of
+  `Stop` on API errors — without those events the pane would stay `busy` until
+  something else happened. claude has no interrupt event, so an Esc'd claude
+  turn stays busy until the next prompt; that is an upstream gap, not a bug here.
+- **claude `Notification` is filtered.** It carries many unrelated types
+  (`auth_success`, `agent_completed`, `quota_*`, …), so the hook passes
+  `--notify` and only the needs-input types (`permission_prompt`, `idle_prompt`,
+  `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`,
+  `worker_permission_prompt`) are reported. kimi's `Notification` is not
+  subscribed at all: it only reports background-task status (`task.<status>`),
+  which is not an attention state.
+- **Subagent events are dropped** (`--guard`), see Writer rule 5.
 
 All adapters write the **same** `@agent-state` payload, so the reader is
 tool-agnostic: it just trusts the freshest writer on the pane.

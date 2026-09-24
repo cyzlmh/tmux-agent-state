@@ -50,6 +50,53 @@ echo "$out" | grep -q '▶1' || fail "should count 1 running: $out"
 echo "$out" | grep -q 'colour180' || fail "asking should be sand: $out"
 pass "counts: asking + done + running"
 
+# 4b. unfinished turns are counted separately and shown in red, ahead of done.
+#     Note the other window (created in section 5) is not in this session's
+#     scope yet, so the session totals below are exactly these three panes.
+tmux_cmd set-option -p -t "$PANE" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"truncated\"}"
+tmux_cmd set-option -p -t "$P2" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"error\"}"
+tmux_cmd set-option -p -t "$P3" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
+out=$(run_indicator)
+echo "$out" | grep -q '…1' || fail "should count 1 truncated: $out"
+echo "$out" | grep -q '✗1' || fail "should count 1 error: $out"
+echo "$out" | grep -q '✓1' || fail "should count 1 done: $out"
+echo "$out" | grep -q 'colour167' || fail "unfinished turns should be red: $out"
+# truncated/error render before the done count
+python3 - "$out" <<'EOF' || fail "unfinished turns should lead done: $out"
+import sys
+s = sys.argv[1]
+assert s.find("…1") < s.find("✓1"), s
+assert s.find("✗1") < s.find("✓1"), s
+EOF
+pass "counts: truncated + error (red, ahead of done)"
+
+# 4c. leaving an unfinished state (a new turn starts) drops the alert chip
+tmux_cmd set-option -p -t "$PANE" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"busy\",\"ts\":$NOW,\"detail\":\"working\"}"
+tmux_cmd set-option -p -t "$P2" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
+out=$(run_indicator)
+if echo "$out" | grep -q '…1'; then
+    fail "truncated should clear once a new turn runs: $out"
+fi
+if echo "$out" | grep -q '✗1'; then
+    fail "error should clear once the pane is done: $out"
+fi
+echo "$out" | grep -q '▶1' || fail "new turn should count as running: $out"
+echo "$out" | grep -q '✓2' || fail "should count 2 done: $out"
+pass "unfinished state clears on the next turn"
+
+# restore the section-4 arrangement for the later scope assertions
+tmux_cmd set-option -p -t "$PANE" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"done\"}"
+tmux_cmd set-option -p -t "$P2" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"waiting\",\"ts\":$NOW,\"detail\":\"asking\"}"
+tmux_cmd set-option -p -t "$P3" @agent-state \
+    "{\"tool\":\"pi\",\"state\":\"busy\",\"ts\":$NOW,\"detail\":\"working\"}"
+
 # 5. window scope: only the current window's panes
 tmux_cmd new-window -d -t ai -n other
 OTHER_PANE="$(tmux_cmd display-message -p -t ai:other.0 '#{pane_id}')"

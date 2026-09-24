@@ -18,6 +18,8 @@ Reader rules (precedence, explicit signals only — no guessing):
 Display states (wire -> display):
     busy               -> running
     waiting + asking   -> needs-input   the only attention state
+    waiting + truncated-> truncated     turn hit the output limit, unfinished
+    waiting + error    -> error         turn failed, unfinished
     waiting + bg       -> bg            idle, background tasks still running
     waiting + done     -> done
     waiting (other)    -> ready
@@ -103,6 +105,13 @@ def display_state(state: str, detail: str) -> str:
         return "running"
     if detail == "asking":
         return "needs-input"
+    # A turn that ended without finishing: the model hit its output limit, or
+    # the run failed. Both are faults the user has to act on, so they are
+    # reported distinctly instead of as a plain done.
+    if detail == "truncated":
+        return "truncated"
+    if detail == "error":
+        return "error"
     if detail == "bg":
         return "bg"
     if detail == "done":

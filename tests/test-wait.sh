@@ -50,6 +50,20 @@ out=$(run_wait "$PANE" needs-input done --timeout 5)
 [ "$out" = "done" ] || fail "multi-state match: $out"
 pass "multiple wanted states"
 
+# 3b. an unfinished turn is its own display state, so a script can wait for it
+#     (e.g. "tell me when the agent stops without finishing")
+run_agent_state --agent claude --state waiting --detail truncated
+out=$(run_wait "$PANE" truncated --timeout 5)
+[ "$out" = "truncated" ] || fail "truncated should be matchable: $out"
+run_agent_state --agent claude --state waiting --detail error
+out=$(run_wait "$PANE" error --timeout 5)
+[ "$out" = "error" ] || fail "error should be matchable: $out"
+# ...and it must not be mistaken for a clean finish
+if run_wait "$PANE" done --timeout 1 >/dev/null 2>&1; then
+    fail "error must not match a wait for done"
+fi
+pass "unfinished turns are distinct wait targets"
+
 # 4. timeout exits 1
 if run_wait "$PANE" running --timeout 1 >/dev/null 2>&1; then
     fail "wait.py should time out while state is done"

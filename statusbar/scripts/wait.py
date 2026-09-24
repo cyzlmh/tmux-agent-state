@@ -4,7 +4,8 @@
     wait.py [pane_id] STATE [STATE...] [--timeout SECONDS]
 
 States are the shared display states (agent_state.display_state/classify):
-running | needs-input | done | ready | stale | shell | untracked | dead.
+running | needs-input | truncated | error | done | ready | bg | stale |
+shell | untracked | dead.
 
 The writer (adapters/agent-state.sh) signals the tmux wait-for channel
 "agent-state-<pane>" on every transition; this script waits on that channel

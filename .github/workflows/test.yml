@@ -22,5 +22,7 @@ jobs:
       - name: Install tmux (macOS, if missing)
         if: runner.os == 'macOS'
         run: command -v tmux >/dev/null || brew install tmux
+      - name: Install bun (runs the pi extension test)
+        uses: oven-sh/setup-bun@v2
       - name: Run tests
         run: bash tests/run-all.sh

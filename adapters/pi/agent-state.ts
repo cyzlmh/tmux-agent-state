@@ -14,10 +14,15 @@
  *
  * Reliability: state is driven only by deterministic events (input /
  * agent_start -> busy, agent_settled -> waiting). There is deliberately NO
- * tool-name guessing: pi exposes no event for "UI waiting for user input",
- * so an agent blocked on a question tool reports busy until the turn
- * settles. detail is a display hint only (ready/working/done, plus bg
- * while bg-tasks has running jobs).
+ * tool-name guessing. "Agent is asking" comes from pi's own signals:
+ * ui_prompt_start/ui_prompt_end (pi >= 0.84.4) fire around every blocking
+ * ctx.ui prompt, and the shared __tmuxPanelQuestion flag covers the same
+ * ground for older pi versions (see question.ts). detail is a display hint
+ * only (ready/working/done, plus bg while bg-tasks has running jobs). A turn
+ * that ended without finishing — the model hit its output limit (stopReason
+ * "length") or the run failed (stopReason "error") — reports
+ * detail=truncated / detail=error, which readers render as an error rather
+ * than a plain done.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
@@ -54,6 +59,8 @@ type State = "waiting" | "busy";
 // Shared flag with the question tool extension (same pi process): while the
 // question tool blocks on user input it sets __tmuxPanelQuestion and writes
 // waiting/asking; writeState reflects that instead of our in-memory busy.
+// Superseded by ui_prompt_start/ui_prompt_end below, but kept for pi < 0.84.4
+// and for tools that want to report asking on their own terms.
 type QuestionFlag = { active: true; since: number } | undefined;
 
 function questionFlag(): QuestionFlag {
@@ -113,6 +120,37 @@ function lastAssistantText(entries: unknown[]): string {
   return "";
 }
 
+/**
+ * The assistant message that ended the run, or undefined. Unlike
+ * lastAssistantText this does not skip tool-call-only messages: the last
+ * assistant message is the one whose stopReason pi surfaces in its own UI
+ * ("Response was truncated before completion." / "Error: …").
+ */
+function lastAssistantMessage(
+  entries: unknown[],
+): { stopReason?: string } | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i] as
+      | { type?: string; message?: { role?: string; stopReason?: string } }
+      | undefined;
+    if (e?.type !== "message" || e.message?.role !== "assistant") continue;
+    return e.message;
+  }
+  return undefined;
+}
+
+/**
+ * detail for a turn that just settled. A turn that stopped at the model's
+ * output limit ("length") or failed ("error") never actually finished, so it
+ * must not read as a plain done. "aborted" is deliberately done: the user
+ * cancelled on purpose, which is not a fault to flag.
+ */
+function settledDetail(stopReason: string | undefined): string {
+  if (stopReason === "length") return "truncated";
+  if (stopReason === "error") return "error";
+  return "done";
+}
+
 export default function agentState(pi: ExtensionAPI): void {
   const envPane = process.env.TMUX_PANE;
   if (!envPane) return; // not running inside tmux -> no-op
@@ -121,6 +159,12 @@ export default function agentState(pi: ExtensionAPI): void {
   let state: State | null = null;
   let detail = "";
   let since = Date.now();
+
+  // Depth of blocking ctx.ui prompts (pi emits ui_prompt_start/_end around
+  // each one). > 0 means pi is sitting in a dialog waiting for the user, which
+  // is exactly the needs-input case, whatever tool raised it.
+  let uiPrompts = 0;
+  let uiPromptSince = 0;
 
   // last interaction I/O
   let lastInput = "";
@@ -135,11 +179,21 @@ export default function agentState(pi: ExtensionAPI): void {
   function writeState(): void {
     if (!state) return;
     const q = questionFlag();
-    // While the question tool is waiting for the user, report waiting/asking
-    // (its since) instead of our in-memory busy state.
-    const s: State = q?.active ? "waiting" : state;
-    const d = q?.active ? "asking" : s === "waiting" && bgRunning() > 0 ? "bg" : detail;
-    const sn = q?.active && q.since ? q.since : since;
+    // A blocking user-facing prompt (pi's ui_prompt_* or the question tool's
+    // flag) is reported as waiting/asking instead of our in-memory busy.
+    const asking = q?.active === true || uiPrompts > 0;
+    const s: State = asking ? "waiting" : state;
+    // Precedence: a blocking prompt beats everything; then a turn that ended
+    // badly (truncated/error) — background jobs must not mask a failure; then
+    // bg while waiting with work in flight; then the plain detail.
+    const d = asking
+      ? "asking"
+      : detail === "truncated" || detail === "error"
+        ? detail
+        : s === "waiting" && bgRunning() > 0
+          ? "bg"
+          : detail;
+    const sn = asking ? (q?.since ?? uiPromptSince ?? since) : since;
     const payload = JSON.stringify({
       tool: TOOL,
       state: s,
@@ -182,6 +236,7 @@ export default function agentState(pi: ExtensionAPI): void {
   function clear(): void {
     state = null;
     detail = "";
+    uiPrompts = 0;
     lastInput = "";
     lastOutput = "";
     (globalThis as Record<string, unknown>).__tmuxAgentStateRefresh = undefined;
@@ -215,11 +270,34 @@ export default function agentState(pi: ExtensionAPI): void {
 
   // turn fully done (no auto-retry / compaction / queued follow-up pending)
   // -> waiting; publish final I/O for this interaction. Output comes from the
-  // settled session entries, not from streaming events.
+  // settled session entries, not from streaming events. A turn cut off by the
+  // output limit, or one that failed, is reported as truncated/error instead
+  // of done so a reader can flag it.
   pi.on("agent_settled", (_event, ctx) => {
-    lastOutput = lastAssistantText(ctx.sessionManager.getEntries());
-    set("waiting", "done");
+    const entries = ctx.sessionManager.getEntries();
+    lastOutput = lastAssistantText(entries);
+    set("waiting", settledDetail(lastAssistantMessage(entries)?.stopReason));
     writeIo();
+  });
+
+  // pi fires these around every blocking ctx.ui prompt (select/confirm/input/
+  // editor/custom), including prompts raised by other extensions — so a pane
+  // parked on a permission dialog reads needs-input without any tool-name
+  // guessing. They are notifications, not transitions: writeState() is called
+  // directly because the in-memory state (busy) does not change here.
+  pi.on("ui_prompt_start", () => {
+    if (uiPrompts++ === 0) {
+      uiPromptSince = Date.now();
+      writeState();
+      colorize();
+    }
+  });
+
+  pi.on("ui_prompt_end", () => {
+    if (uiPrompts > 0 && --uiPrompts === 0) {
+      writeState();
+      colorize();
+    }
   });
 
   pi.on("session_shutdown", () => clear());

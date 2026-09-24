@@ -20,6 +20,13 @@
 #                        Task subagents) instead of letting them overwrite the
 #                        main pane's state. Fail-open: unreadable/unknown
 #                        payloads are reported as usual.
+#   --notify             read the hook JSON from stdin and only report when it
+#                        carries a notification_type that means "needs input"
+#                        (claude Notification: permission_prompt / idle_prompt /
+#                        agent_needs_input / elicitation*). Other notification
+#                        types (auth_success, agent_completed, quota_*, …) are
+#                        dropped instead of forcing a waiting/asking state.
+#                        Combine with --guard on claude, which always uses both.
 #   --adapter-version N  ignored marker; lets install.sh --check report which
 #                        template version is installed.
 #
@@ -37,6 +44,7 @@ agent=""
 state=""
 detail=""
 guard=0
+notify=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -44,37 +52,59 @@ while [ "$#" -gt 0 ]; do
         --state) state="${2:-}"; shift 2 ;;
         --detail) detail="${2:-}"; shift 2 ;;
         --guard) guard=1; shift ;;
+        --notify) notify=1; shift ;;
         --adapter-version) shift 2 ;;
         --clear) state=""; shift ;;
         *)
-            echo "usage: agent-state.sh --agent <name> --state <waiting|busy> [--detail <hint>] [--guard] | --clear" >&2
+            echo "usage: agent-state.sh --agent <name> --state <waiting|busy> [--detail <hint>] [--guard] [--notify] | --clear" >&2
             exit 1
             ;;
     esac
 done
 
-# Subagent guard: hook payloads carrying agent_id belong to a subagent (e.g.
-# claude Task agents); their tool/stop events must not touch the main pane's
-# state. (SubagentStop is not subscribed in claude-hooks.json at all, so it
-# can never revive an idle pane.) Guard failures fail open.
-if [ "$guard" = 1 ] && [ ! -t 0 ] && command -v python3 >/dev/null 2>&1; then
-    # -c (not a heredoc) keeps stdin connected to the hook's payload pipe.
-    rc=0
-    python3 -c '
+# Hook payload handling. Both flags need the JSON the agent pipes to hooks on
+# stdin, so they share one read; the verdict is one line on stdout:
+#   drop              subagent event -> never touch the main pane's state
+#   notify:<type>     claude Notification -> only needs-input types are reported
+#   keep              report as usual (also the fail-open verdict)
+# (SubagentStop is not subscribed in claude-hooks.json at all, so it can never
+# revive an idle pane. Guard/notify failures fail open.)
+if [ "$guard" = 1 ] || [ "$notify" = 1 ]; then
+    if [ ! -t 0 ] && command -v python3 >/dev/null 2>&1; then
+        # -c (not a heredoc) keeps stdin connected to the hook's payload pipe.
+        verdict="$(python3 -c '
 import json, select, sys
-drop = 0
+verdict = "keep"
 try:
     if select.select([sys.stdin], [], [], 1.0)[0]:
         data = sys.stdin.read()
         if data.strip():
             payload = json.loads(data)
-            if isinstance(payload, dict) and payload.get("agent_id"):
-                drop = 10
+            if isinstance(payload, dict):
+                if payload.get("agent_id"):
+                    verdict = "drop"
+                elif "notification_type" in payload:
+                    verdict = "notify:" + str(payload.get("notification_type"))
 except Exception:
-    drop = 0
-sys.exit(drop)
-' || rc=$?
-    [ "$rc" = 10 ] && exit 0
+    verdict = "keep"
+print(verdict)
+' 2>/dev/null)" || verdict="keep"
+        case "$verdict" in
+            drop) exit 0 ;;
+            notify:*)
+                if [ "$notify" = 1 ]; then
+                    case "${verdict#notify:}" in
+                        # the only notification types that mean "the agent needs
+                        # you"; everything else is informational
+                        permission_prompt|idle_prompt|agent_needs_input|\
+                        elicitation_dialog|elicitation_url_dialog|\
+                        worker_permission_prompt) ;;
+                        *) exit 0 ;;
+                    esac
+                fi
+                ;;
+        esac
+    fi
 fi
 
 # no tmux context -> no-op

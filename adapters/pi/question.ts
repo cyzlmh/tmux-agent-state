@@ -9,6 +9,12 @@
  * waiting/asking itself before blocking — this is reliable, the tool itself
  * knows it is waiting for the user.
  *
+ * NOTE (pi >= 0.84.4): agent-state.ts now listens to pi's own
+ * ui_prompt_start/ui_prompt_end events, which fire around every blocking
+ * ctx.ui call — so asking is reported automatically and this file's flag +
+ * writes are redundant on a current pi. They are kept for pi < 0.84.4 and as
+ * the copy-paste template for tools that want asking without a ctx.ui dialog.
+ *
  * Requires agent-state.ts (it owns the initial state and shutdown cleanup;
  * this file only restores busy/working after the question closes).
  *

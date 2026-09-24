@@ -9,32 +9,56 @@ the [`@agent-state`](../../PROTOCOL.md) pane option.
 | -------------------------------- | -------- | -------- |
 | `session_start`                  | waiting  | ready    |
 | `input` / `before_agent_start` / `agent_start` | busy | working |
+| `ui_prompt_start` / `ui_prompt_end` | waiting / busy | asking / working |
 | `agent_settled` (turn fully done) | waiting  | done     |
+| `agent_settled` + `stopReason: "length"` | waiting | truncated |
+| `agent_settled` + `stopReason: "error"`  | waiting | error |
 | `session_shutdown`               | (clears the option) | - |
+
+The last assistant message's `stopReason` decides the settled detail: a turn
+cut off at the model's output limit (`length`, which pi renders in-transcript
+as "Response was truncated before completion.") reports `truncated`, and a
+failed run (`error`) reports `error`, so neither looks like a clean `done`. A
+user abort (`aborted`) is deliberate and stays `done`.
 
 Only writes on state transitions (no heartbeat — liveness is decided by the
 reader via the pane foreground command, see PROTOCOL.md), so it never spams
-tmux on per-token events.
+tmux on per-token events. `ui_prompt_start`/`ui_prompt_end` are the one
+exception: they are notifications rather than transitions, so they rewrite the
+option directly (bracketed by a depth counter, so nested prompts are fine).
 
-Reliability: `state` is driven by deterministic events only — see the
-`question` integration below for how "agent is asking the user" is
-reported reliably (no tool-name guessing). `detail` is a display hint
-except `asking`, which is written by the blocking tool itself.
+Reliability: `state` is driven by deterministic events only, and "the agent is
+asking" comes from pi's own signal — `ui_prompt_start`/`ui_prompt_end` fire
+around every blocking `ctx.ui` prompt (pi ≥ 0.84.4), whatever extension raised
+it. There is no tool-name guessing. `detail` is a display hint except
+`asking`, which is only written when the agent really is blocked on the user.
 
-## Optional: question tool (reliable "asking")
+## "Asking" reporting
 
-`agent-state.ts` alone is fully functional — a pi blocked on a question just
-shows `busy`. For the agent to show up as *asking* (needs-input) instead,
-a blocking tool must report it: the tool itself knows it is waiting, so this
-is reliable (no tool-name guessing).
+As of pi 0.84.4, `agent-state.ts` alone reports needs-input: pi emits
+`ui_prompt_start`/`ui_prompt_end` around every blocking `ctx.ui` call
+(`select`/`confirm`/`input`/`editor`/`custom`), which covers your own blocking
+tools as well as the built-in prompts of other extensions. Nothing else is
+needed for the common case.
 
-`question.ts` in this directory is a full-custom-UI example of the contract
-(options list + inline editor, via `ctx.ui.custom()`): it writes `waiting` +
-`detail=asking` before blocking on the user, then restores `busy` + `working`
-in a `finally` block. Each state write also refreshes the window-label chips
-via colorize.sh (same mechanism as agent-state.ts), so a chip moves
-asking→running→done instead of skipping the brief running state. Load it only
-if you want asking reporting (it requires `agent-state.ts`, which owns the
+Two caveats:
+
+- pi dispatches these events on a microtask, and it only wraps calls made
+  through `ctx.ui`. A dialog drawn by pi's own core (outside the extension
+  runner) is not covered.
+- On pi < 0.84.4 the events do not exist, so `agent-state.ts` still honours the
+  shared `globalThis.__tmuxPanelQuestion` flag described below.
+
+## Optional: question tool (the pi < 0.84.4 path, and a UI example)
+
+`question.ts` in this directory is a full-custom-UI example (options list +
+inline editor, via `ctx.ui.custom()`). It sets the shared
+`globalThis.__tmuxPanelQuestion` flag and writes `waiting` + `detail=asking`
+before blocking on the user, then restores `busy` + `working` in a `finally`
+block. Each state write also refreshes the window-label chips via colorize.sh
+(same mechanism as agent-state.ts), so a chip moves asking→running→done
+instead of skipping the brief running state. Load it if you want that UI, or if
+you are on a pi older than 0.84.4 (it requires `agent-state.ts`, which owns the
 initial state and shutdown cleanup):
 
 ```sh
@@ -46,11 +70,14 @@ A shared in-process flag (`globalThis.__tmuxPanelQuestion`) coordinates the
 two extensions: while the question is open, `writeState` reports
 `waiting/asking` (and its `since`) instead of the in-memory `busy`. On
 question close, the tool clears the flag and restores `busy/working`;
-`agent_settled` then reports `waiting/done` as usual.
+`agent_settled` then reports `waiting/done` as usual. On pi ≥ 0.84.4 the
+`ui_prompt_*` events already cover this, so the flag is redundant there (it is
+harmless — `writeState` treats either signal as asking).
 
-Have your own blocking tool already? Don't install the example — wrap the
-blocking call with the same contract (set the flag + write waiting/asking
-before, clear + restore busy/working in `finally`), see the header of
+Have your own blocking tool already? On pi ≥ 0.84.4 you get asking reporting for
+free as soon as you use `ctx.ui.*`. If you are on an older pi, or want to report
+asking without a dialog, set the flag and write waiting/asking before blocking,
+then clear + restore busy/working in `finally` — see the header of
 `question.ts`.
 
 ## Load

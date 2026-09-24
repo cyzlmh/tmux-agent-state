@@ -17,10 +17,13 @@ tmux-agent-state/
   adapters/
     agent-state.sh     shared hook adapter: writes @agent-state from claude/codex events
     claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
-                       PermissionRequest/Elicitation/ElicitationResult/Stop/SessionEnd)
-    codex-hooks.json   codex hook template (same minus Elicitation/ElicitationResult)
+                       PostToolUseFailure/PermissionRequest/Elicitation/ElicitationResult/
+                       Notification/Stop/StopFailure/SessionEnd)
+    codex-hooks.json   codex hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
+                       PostToolUseFailure/PermissionRequest/Stop/Interrupt/SessionEnd)
     kimi-hooks.toml    kimi hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
-                       PermissionRequest/PermissionResult/Stop/StopFailure/Interrupt/SessionEnd)
+                       PostToolUseFailure/PermissionRequest/PermissionResult/Stop/StopFailure/
+                       Interrupt/SessionEnd)
     install.sh         merges the hooks into ~/.claude/settings.json / ~/.codex/hooks.json /
                        ~/.kimi-code/config.toml
     pi/
@@ -188,6 +191,8 @@ the only colours.
 | display state | meaning                       | tmux      | hex       | symbol   |
 | ------------- | ----------------------------- | --------- | --------- | -------- |
 | needs-input   | agent is asking for input     | colour180 | `#d7af87` | `?` bold |
+| truncated     | turn hit the output limit, unfinished | colour167 | `#d75f5f` | `…` |
+| error         | turn failed, unfinished       | colour167 | `#d75f5f` | `✗`      |
 | done          | agent finished a turn         | colour108 | `#87af87` | `✓`      |
 | running       | agent is busy                 | colour68  | `#5f87d7` | `▶`      |
 | bg            | idle, background tasks running | colour172 | `#d78700` | `◐`      |
@@ -202,6 +207,10 @@ Principles:
 - **needs-input is the only attention colour** — the only bold/accented
   element anywhere. done/running are information, stale is an anomaly,
   everything else stays muted.
+- **an unfinished turn is not a success** — `truncated`/`error` reuse stale's
+  red rather than done's green, so a turn that hit the output limit or failed
+  is visible at a glance (matching pi's own in-transcript warning) instead of
+  looking like a clean finish.
 - **explicit over implicit** — stale/untracked are shown as-is, never
   papered over with a friendlier colour.
 - **minimal chrome** — no glow, no tinted borders, no badge pills; a 1px
@@ -213,9 +222,15 @@ Principles:
 | ------- | ---- | ------ |
 | pi      | TS extension (`adapters/pi/agent-state.ts`) | done, e2e verified |
 | claude  | hooks (`adapters/claude-hooks.json`) | done — `adapters/install.sh claude` |
-| codex   | hooks (`adapters/codex-hooks.json`) | done — `adapters/install.sh codex`, then trust in `/hooks` |
+| codex   | hooks (`adapters/codex-hooks.json`) | done — `adapters/install.sh codex`, then re-trust in `/hooks` |
 | kimi    | hooks (`adapters/kimi-hooks.toml`) | done — `adapters/install.sh kimi` |
 | zsh     | none (`pane_current_command` ⇒ waiting, exact) | n/a |
+
+Adapter templates carry a version marker (`--adapter-version N`). It is ignored
+at runtime; `install.sh --check` uses it to tell you that a config written by an
+older template needs re-installing. Re-running `install.sh` rewrites the hooks
+in place (idempotent) — for codex, run `/hooks` afterwards to trust the new
+definitions, since codex pins a hash per hook.
 
 ## Verify
 

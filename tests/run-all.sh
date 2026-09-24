@@ -13,6 +13,13 @@ python3 "$ROOT_DIR/tests/test-classify.py"
 echo "==> unit: viz classify"
 python3 "$ROOT_DIR/tests/test-viz-classify.py"
 
+echo "==> unit: pi extension state machine"
+if command -v bun >/dev/null 2>&1; then
+    bun "$ROOT_DIR/tests/test-pi-adapter.ts"
+else
+    echo "SKIP: bun not found (needed for the pi extension test)"
+fi
+
 echo "==> integration: TPM entry point on isolated tmux socket"
 "$ROOT_DIR/tests/test-tpm-entry.sh"
 

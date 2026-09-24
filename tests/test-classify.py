@@ -42,12 +42,22 @@ check(ags.display_state("waiting", "done") == "done", "waiting+done -> done")
 check(ags.display_state("waiting", "ready") == "ready", "waiting+ready -> ready")
 check(ags.display_state("waiting", "") == "ready", "waiting no detail -> ready")
 
+# --- display_state: unfinished turns are their own states ---
+check(ags.display_state("waiting", "truncated") == "truncated",
+      "waiting+truncated -> truncated")
+check(ags.display_state("waiting", "error") == "error", "waiting+error -> error")
+# a running turn is running, even if the previous turn ended badly
+check(ags.display_state("busy", "truncated") == "running",
+      "busy+truncated -> running (new turn wins)")
+
 # --- classify: reader rules from PROTOCOL.md ---
 DONE = '{"tool":"pi","state":"waiting","ts":1,"detail":"done"}'   # ancient ts, still fine
 ASKING = '{"tool":"pi","state":"waiting","ts":1,"detail":"asking"}'
 BUSY = '{"tool":"claude","state":"busy","ts":1,"detail":"working"}'
 READY = '{"tool":"pi","state":"waiting","ts":1,"detail":"ready"}'
 BG = '{"tool":"pi","state":"waiting","ts":1,"detail":"bg"}'
+TRUNC = '{"tool":"pi","state":"waiting","ts":1,"detail":"truncated"}'
+ERROR = '{"tool":"pi","state":"waiting","ts":1,"detail":"error"}'
 
 # 1. dead always wins
 c = ags.classify("1", "pi", ASKING)
@@ -61,6 +71,8 @@ check(ags.classify("0", "claude", DONE)["state"] == "done", "live adapter done")
 c = ags.classify("0", "node", BUSY)
 check(c["state"] == "running" and c["tool"] == "claude", f"live adapter busy: {c}")
 check(ags.classify("0", "node", READY)["state"] == "ready", "live adapter ready")
+check(ags.classify("0", "pi", TRUNC)["state"] == "truncated", "live adapter truncated")
+check(ags.classify("0", "pi", ERROR)["state"] == "error", "live adapter error")
 
 # 3. adapter present + foreground is a shell -> stale (adapter process gone)
 c = ags.classify("0", "zsh", DONE)
@@ -90,24 +102,35 @@ entries = [
     (DONE, "zsh", "0"),      # shell -> stale
     (READY, "claude", "0"),  # ready: not counted
     (BG, "pi", "0"),         # bg: counted
+    (TRUNC, "pi", "0"),      # truncated: counted (an unfinished turn)
+    (ERROR, "pi", "0"),      # error: counted (an unfinished turn)
     (ASKING, "claude", "1"), # dead: not counted
     ("garbage", "claude", "0"),
     ("", "claude", "0"),
 ]
 counts = ind.count_stats(entries)
-check(counts == {"needs-input": 1, "done": 2, "stale": 1, "running": 1, "bg": 1}, f"counts: {counts}")
+check(counts == {"needs-input": 1, "truncated": 1, "error": 1, "done": 2,
+                 "stale": 1, "running": 1, "bg": 1}, f"counts: {counts}")
 
 r = ind.render_stats(counts, ind.DEFAULT_COLORS)
 check("?1" in r and "colour180" in r and "bold" in r, f"needs-input segment: {r}")
 check("✓2" in r and "colour108" in r, f"done segment: {r}")
 check("!1" in r and "colour167" in r, f"stale segment: {r}")
 check("▶1" in r and "colour68" in r, f"running segment: {r}")
-# order fixed: needs-input, done, stale, running
-check(r.find("?1") < r.find("✓2") < r.find("!1") < r.find("▶1"), f"order: {r}")
+check("✗1" in r and "colour167" in r, f"error segment: {r}")
+check("…1" in r and "colour167" in r, f"truncated segment: {r}")
+# order fixed: needs-input, truncated, error, done, stale, running
+check(r.find("?1") < r.find("…1") < r.find("✗1") < r.find("✓2") < r.find("▶1"),
+      f"order: {r}")
 
-empty = ind.render_stats({"needs-input": 0, "done": 0, "stale": 0, "running": 0}, ind.DEFAULT_COLORS)
+empty = ind.render_stats(
+    {k: 0 for k in ind.ORDER}, ind.DEFAULT_COLORS)
 check(empty == "", "zero counts -> empty")
-only_run = ind.render_stats({"needs-input": 0, "done": 0, "stale": 0, "running": 2}, ind.DEFAULT_COLORS)
+only_run = ind.render_stats(
+    {**{k: 0 for k in ind.ORDER}, "running": 2}, ind.DEFAULT_COLORS)
 check(only_run == "#[fg=colour68]▶2#[default]", f"only running: {only_run}")
+only_trunc = ind.render_stats(
+    {**{k: 0 for k in ind.ORDER}, "truncated": 1}, ind.DEFAULT_COLORS)
+check(only_trunc == "#[fg=colour167]…1#[default]", f"only truncated: {only_trunc}")
 
 print(f"PASS: {passed} checks")
