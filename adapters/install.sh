@@ -52,6 +52,15 @@ if not isinstance(data, dict):
 
 new = json.loads(open(template).read().replace("__AGENT_STATE__", path))
 hooks = data.setdefault("hooks", {})
+# drop our entries for events the template no longer carries (e.g. an event
+# the upstream CLI never supported); other tools' hooks are never touched
+for ev in list(hooks):
+    if ev not in new["hooks"]:
+        kept = [g for g in hooks[ev] if "agent-state.sh" not in json.dumps(g)]
+        if kept:
+            hooks[ev] = kept
+        else:
+            del hooks[ev]
 for ev, groups in new["hooks"].items():
     # drop previous tmux-agent-state entries for this event, then append fresh ones
     kept = [g for g in hooks.get(ev, []) if "agent-state.sh" not in json.dumps(g)]

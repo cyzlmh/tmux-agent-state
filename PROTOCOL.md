@@ -213,6 +213,16 @@ Notes on the hook adapters:
   `Stop` on API errors — without those events the pane would stay `busy` until
   something else happened. claude has no interrupt event, so an Esc'd claude
   turn stays busy until the next prompt; that is an upstream gap, not a bug here.
+- **codex has no failure events.** Its hook enum (checked against 0.160) has
+  no `StopFailure`/`PostToolUseFailure`, and unknown events in hooks.json are
+  silently ignored — the template deliberately doesn't subscribe them.
+  `Stop` fires only on a normally completed turn and `Interrupt` only on Esc,
+  so a codex turn that dies on an API error leaves the pane `busy` until the
+  next prompt or `SessionEnd`. `PostToolUse` likewise fires only on
+  successful tool calls. All upstream gaps, not adapter bugs.
+- **codex `PermissionRequest` needs prompts enabled.** It fires only when
+  codex actually asks for approval; with `approval_policy = "never"` nothing
+  ever asks, so `waiting/asking` never appears.
 - **claude `Notification` is filtered.** It carries many unrelated types
   (`auth_success`, `agent_completed`, `quota_*`, …), so the hook passes
   `--notify` and only the needs-input types (`permission_prompt`, `idle_prompt`,

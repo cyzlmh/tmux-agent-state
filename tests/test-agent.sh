@@ -45,15 +45,41 @@ run_agent_state "$PANE" --clear
 pass "clear"
 
 # 4. target-pane fallback: invalid $TMUX_PANE, agent running in another pane.
-# pane_current_command is the real process name (not argv[0]), so we fake the
-# agent match with a real foreground process; the scan itself is generic
-# (substring match on the agent name).
+# The process-tree walk finds nothing here (the hook is not a descendant of
+# any test-server pane), so the foreground-name scan is exercised. The scan
+# is a generic substring match on pane_current_command, and only a unique
+# match is used — faked with a real foreground process (sleep).
 P2="$(tmux_cmd split-window -d -P -F '#{pane_id}' -t ai:main)"
 hold_pane "$P2" || fail "hold P2"
 TMUX_STATUS_TMUX="tmux -L $SOCK" TMUX_PANE=%999999 bash "$AGENT_STATE" --agent sleep --state busy --detail working
 raw=$(get_state "$P2")
 echo "$raw" | grep -q '"tool":"sleep"' || fail "fallback should find the agent pane: $raw"
 pass "target-pane fallback scans by agent"
+
+# 4b. process-tree fallback: with no usable TMUX_PANE, a hook running inside
+#     a pane finds that pane by walking its ancestry to pane_pid (the case
+#     where the agent spawns hooks itself). TMUX/TMUX_PANE are stripped so
+#     the walk — not the env — is what finds the pane.
+P3="$(tmux_cmd split-window -d -P -F '#{pane_id}' -t ai:main)"
+tmux_cmd send-keys -t "$P3" \
+    "env -u TMUX -u TMUX_PANE TMUX_STATUS_TMUX='tmux -L $SOCK' bash '$AGENT_STATE' --agent codex --state busy --detail working" Enter
+raw=""
+for _ in $(seq 1 60); do
+    raw=$(get_state "$P3")
+    [ -n "$raw" ] && break
+    sleep 0.05
+done
+echo "$raw" | grep -q '"state":"busy"' || fail "tree fallback should find the pane: $raw"
+pass "target-pane fallback walks the process tree"
+
+# 4c. no unambiguous match -> write nothing. The old fallback wrote to the
+#     focused pane (display-message '#{pane_id}'), i.e. state landed on a
+#     random pane; assert the current pane and the sleep pane stay untouched.
+TMUX_STATUS_TMUX="tmux -L $SOCK" TMUX_PANE=%999999 bash "$AGENT_STATE" --agent definitely-not-running --state busy --detail working
+assert_empty "$(get_state "$PANE")" "focused pane must not receive guessed state"
+raw=$(get_state "$P2")
+echo "$raw" | grep -q '"tool":"sleep"' || fail "unrelated pane must keep its state: $raw"
+pass "fallback never writes to a guessed pane"
 
 # 5. templates: valid JSON, all expected events, placeholder replaced by install
 for tmpl in claude codex; do
@@ -63,20 +89,25 @@ path, name = sys.argv[1:3]
 d = json.load(open(path))
 events = set(d["hooks"].keys())
 expected = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-            "PostToolUseFailure", "PermissionRequest", "Stop", "SessionEnd"}
+            "PermissionRequest", "Stop", "SessionEnd"}
 if name == "claude":
-    expected.update({"Elicitation", "ElicitationResult", "Notification", "StopFailure"})
+    expected.update({"Elicitation", "ElicitationResult", "Notification",
+                     "PostToolUseFailure", "StopFailure"})
 if name == "codex":
     # Stop does not fire when a turn is interrupted (Esc), so Interrupt is the
-    # only signal that brings the pane back from busy.
+    # only signal that brings the pane back from busy. codex's hook enum
+    # (checked against 0.160) has no StopFailure/PostToolUseFailure, and
+    # unknown events in hooks.json are silently ignored — subscribing them
+    # would be dead config.
     expected.update({"Interrupt"})
 assert events == expected, f"{name}: events {events ^ expected}"
+version = {"claude": "2", "codex": "3"}[name]
 for ev, groups in d["hooks"].items():
     for g in groups:
         cmd = g["hooks"][0]["command"]
         assert "__AGENT_STATE__" in cmd, f"{name}/{ev}: placeholder missing: {cmd}"
         assert "--agent {name}".format(name=name) in cmd or "--clear" in cmd, f"{name}/{ev}: wrong agent: {cmd}"
-        assert "--adapter-version 2" in cmd, f"{name}/{ev}: version marker missing: {cmd}"
+        assert f"--adapter-version {version}" in cmd, f"{name}/{ev}: version marker missing: {cmd}"
         if name == "claude" and "--clear" not in cmd:
             assert "--guard" in cmd, f"claude/{ev}: subagent guard missing: {cmd}"
         # Notification carries many unrelated types; only the needs-input ones
@@ -136,7 +167,7 @@ chmod +x "$STUB_DIR/tmux"
 guard_writes() {  # $1 = hook payload -> number of set-option writes
     local calls; calls="$(mktemp)"
     printf '%s' "$1" | STUB_CALLS="$calls" TMUX_STATUS_TMUX="$STUB_DIR/tmux" \
-        TMUX_AGENT_STATE_LOG= bash "$AGENT_STATE" --agent claude --state waiting \
+        TMUX_PANE=%1 TMUX_AGENT_STATE_LOG= bash "$AGENT_STATE" --agent claude --state waiting \
         --detail asking --guard --notify --adapter-version 2 2>/dev/null || true
     local n; n="$(grep -c 'set-option -p' "$calls" 2>/dev/null || true)"
     rm -f "$calls"
@@ -204,6 +235,31 @@ fi
 grep -q 'OUTDATED (installed unversioned -> template v2' "$FAKE_HOME/check.out" \
     || fail "--check drift message: $(cat "$FAKE_HOME/check.out")"
 pass "--check reports adapter versions"
+
+# 6e. install drops our entries for events the template no longer carries
+#     (e.g. PostToolUseFailure removed in codex template v3) while keeping
+#     other tools' hooks on the same event
+mkdir -p "$FAKE_HOME/.codex"
+cat > "$FAKE_HOME/.codex/hooks.json" <<'EOF'
+{"hooks":{
+  "PostToolUseFailure":[
+    {"hooks":[{"type":"command","command":"/old/agent-state.sh --agent codex --state busy --adapter-version 2"}]},
+    {"hooks":[{"type":"command","command":"echo keep-me"}]}
+  ],
+  "Stop":[{"hooks":[{"type":"command","command":"/old/agent-state.sh --agent codex --clear --adapter-version 2"}]}]
+}}
+EOF
+HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" codex >/dev/null
+python3 - "$FAKE_HOME/.codex/hooks.json" <<'EOF' || fail "stale-event cleanup failed"
+import json, sys
+d = json.load(open(sys.argv[1]))
+ptf = d["hooks"].get("PostToolUseFailure", [])
+assert all("agent-state.sh" not in json.dumps(g) for g in ptf), f"our stale entry kept: {ptf}"
+assert any("keep-me" in json.dumps(g) for g in ptf), "other tool's hook dropped"
+stops = json.dumps(d["hooks"]["Stop"])
+assert "--adapter-version 3" in stops and "/old/" not in stops, f"Stop not refreshed to v3: {stops}"
+EOF
+pass "install drops our entries for removed events"
 
 # 6b. install.sh kimi: appends a marked block to config.toml, preserves the
 #     user's TOML (existing hooks included), idempotent on re-run

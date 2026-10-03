@@ -113,19 +113,40 @@ if [ -z "${TMUX:-}${TMUX_STATUS_TMUX:-}" ] || ! command -v tmux >/dev/null 2>&1;
 fi
 read -r -a TMUX_CMD <<< "${TMUX_STATUS_TMUX:-tmux}"
 
-# target pane: $TMUX_PANE from the hook process; if it is missing or dead,
-# scan for a pane whose foreground runs this agent (hooks can fire in child
-# processes where TMUX_PANE points elsewhere). list-panes is the reliable
-# liveness check: display-message -t exits 0 even for nonexistent panes.
+# target pane: $TMUX_PANE from the hook process. If it is missing or dead
+# (hooks can fire in child processes where TMUX_PANE is absent or points
+# elsewhere, e.g. codex's app-server daemon), recover the pane ourselves —
+# but only when the answer is unambiguous; writing a guessed pane's state is
+# worse than writing none:
+#   1. walk this process's ancestry against pane_pid: the hit is the pane
+#      the agent (and therefore this hook) is running in.
+#   2. foreground-name scan, but only when exactly one pane matches —
+#      several matches means guessing. (Of limited use for agents whose
+#      foreground comm is generic: codex shows as "node", claude as its
+#      version string, so the walk above is the real fallback there.)
+# Never use display-message '#{pane_id}': hooks run detached from any
+# client, so it resolves to whatever pane happens to be focused.
+# list-panes is the reliable liveness check: display-message -t exits 0
+# even for nonexistent panes.
 pane="${TMUX_PANE:-}"
 if [ -z "$pane" ] || ! "${TMUX_CMD[@]}" list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qx "$pane"; then
     pane=""
-    if [ -n "$agent" ]; then
-        pane=$("${TMUX_CMD[@]}" list-panes -a -F $'#{pane_id}\t#{pane_current_command}' 2>/dev/null \
-            | awk -F'\t' -v a="$agent" 'index($2, a) { print $1; exit }')
-    fi
-    if [ -z "$pane" ]; then
-        pane=$("${TMUX_CMD[@]}" display-message -p '#{pane_id}' 2>/dev/null || true)
+    pane_pids=$("${TMUX_CMD[@]}" list-panes -a -F $'#{pane_id}\t#{pane_pid}' 2>/dev/null || true)
+    pid="$$"
+    while [ -n "$pane_pids" ] && [ "${pid:-1}" -gt 1 ] 2>/dev/null; do
+        hit=$(printf '%s\n' "$pane_pids" | awk -F'\t' -v p="$pid" '$2 == p { print $1; exit }')
+        if [ -n "$hit" ]; then
+            pane="$hit"
+            break
+        fi
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ' || true)
+    done
+    if [ -z "$pane" ] && [ -n "$agent" ]; then
+        matches=$("${TMUX_CMD[@]}" list-panes -a -F $'#{pane_id}\t#{pane_current_command}' 2>/dev/null \
+            | awk -F'\t' -v a="$agent" 'index($2, a) { print $1 }' || true)
+        if [ "$(printf '%s\n' "$matches" | grep -c . || true)" = "1" ]; then
+            pane="$matches"
+        fi
     fi
 fi
 [ -n "$pane" ] || exit 0

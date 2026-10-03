@@ -20,7 +20,7 @@ tmux-agent-state/
                        PostToolUseFailure/PermissionRequest/Elicitation/ElicitationResult/
                        Notification/Stop/StopFailure/SessionEnd)
     codex-hooks.json   codex hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
-                       PostToolUseFailure/PermissionRequest/Stop/Interrupt/SessionEnd)
+                       PermissionRequest/Stop/Interrupt/SessionEnd)
     kimi-hooks.toml    kimi hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PostToolUseFailure/PermissionRequest/PermissionResult/Stop/StopFailure/
                        Interrupt/SessionEnd)
@@ -231,6 +231,19 @@ at runtime; `install.sh --check` uses it to tell you that a config written by an
 older template needs re-installing. Re-running `install.sh` rewrites the hooks
 in place (idempotent) — for codex, run `/hooks` afterwards to trust the new
 definitions, since codex pins a hash per hook.
+
+### codex caveats (upstream, not fixable from the adapter)
+
+- **a failed turn stays `busy`.** codex fires `Stop` only when a turn
+  completes normally and `Interrupt` only on Esc; its hook enum has no
+  `StopFailure`/`PostToolUseFailure` (checked against 0.160 — unknown events
+  in hooks.json are silently ignored, so the template doesn't subscribe
+  them). A turn that dies on an API error leaves the pane `busy` until the
+  next prompt or session end. `PostToolUse` likewise fires only on
+  successful tool calls.
+- **`asking` needs prompts enabled.** `PermissionRequest` fires only when
+  codex actually asks for approval; with `approval_policy = "never"`
+  nothing ever asks, so `waiting/asking` never appears.
 
 ## Verify
 
