@@ -349,12 +349,69 @@ class RoutingTests(unittest.TestCase):
                 self.assertIsNone(adapter.local_pane(self.command))
 
 
+class LauncherTests(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(patch.stopall)
+        patch.dict(os.environ, {"TMUX_PANE": "%1", "TMUX_AGENT_CODEX_BIN": "codex"}, clear=True).start()
+        patch.object(adapter.shutil, "which", return_value="/usr/bin/codex").start()
+        patch.object(adapter, "pane_exists", return_value=True).start()
+        patch.object(adapter.subprocess, "check_output", return_value=json.dumps(
+            {"status": "running", "socketPath": "/tmp/daemon.sock"})).start()
+        patch.object(adapter, "Binding").start()
+        patch.object(adapter.socket, "socket").start()
+        patch.object(adapter.threading, "Thread").start()
+        patch.object(adapter.signal, "signal").start()
+        self.process = patch.object(adapter.subprocess, "Popen").start()
+        self.process.return_value.wait.return_value = 0
+
+    def launched_args(self, args):
+        self.assertEqual(adapter.launch(args), 0)
+        command = self.process.call_args.args[0]
+        self.assertEqual(command[:2], ["codex", "--remote"])
+        self.assertTrue(command[2].startswith("unix://"))
+        return command[3:]
+
+    def test_new_session_uses_client_cwd(self):
+        for args in ([], ["initial prompt"], ["-m", "resume"],
+                     ["--", "resume"], ["--", "--cd=/prompt"]):
+            with self.subTest(args=args):
+                self.assertEqual(self.launched_args(args), ["--cd", os.getcwd(), *args])
+
+    def test_explicit_absolute_cwd_is_preserved(self):
+        cwd = str(ROOT)
+        for args in (["-C", cwd], ["--cd", cwd], ["--cd=" + cwd], ["-C" + cwd], ["-C=" + cwd],
+                     ["resume", "--cd", cwd], ["fork", "-C", cwd]):
+            with self.subTest(args=args):
+                self.assertEqual(self.launched_args(args), args)
+
+    def test_relative_cwd_is_resolved_on_client(self):
+        for args, expected in [
+            (["-C", "."], ["-C", os.getcwd()]),
+            (["--cd", ".."], ["--cd", os.path.abspath("..")]),
+            (["--cd=.."], ["--cd=" + os.path.abspath("..")]),
+            (["-C.."], ["-C" + os.path.abspath("..")]),
+            (["-C=.."], ["-C=" + os.path.abspath("..")]),
+            (["resume", "-C", "."], ["resume", "-C", os.getcwd()]),
+        ]:
+            with self.subTest(args=args):
+                self.assertEqual(self.launched_args(args), expected)
+
+    def test_resume_and_fork_keep_session_cwd(self):
+        for action in ("resume", "fork"):
+            for args in ([action, "--last"], ["-m", "model", action, "session-id"],
+                         ["-c", "model='resume'", action, "--all"]):
+                with self.subTest(args=args):
+                    self.assertEqual(self.launched_args(args), args)
+
+
 class LauncherIntegration(unittest.TestCase):
     """Real relay/launcher + real tmux, fake Codex protocol (no inference)."""
     @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
     def test_shared_daemon_native_events_and_hook_targeting(self):
         with tempfile.TemporaryDirectory(prefix="cx-test-", dir="/tmp") as directory:
             root = Path(directory)
+            client_cwd = root / "client project"
+            client_cwd.mkdir()
             sock = root / "daemon.sock"
             tmux_sock = root / "tmux.sock"
             command = ["tmux", "-S", str(tmux_sock)]
@@ -378,7 +435,8 @@ s = socket.socket(socket.AF_UNIX); s.settimeout(5)
 s.connect(sys.argv[sys.argv.index("--remote")+1].removeprefix("unix://"))
 s.sendall(b"GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n")
 recv_http(s)
-s.sendall(frame({"id":1,"method":"thread/start","params":{}}, mask=True))
+cwd = sys.argv[sys.argv.index("--cd")+1] if "--cd" in sys.argv else None
+s.sendall(frame({"id":1,"method":"thread/start","params":{"cwd":cwd}}, mask=True))
 assert recv_message(s)["result"]["thread"]["id"] == "mine"
 cmd = os.environ["TMUX_STATUS_TMUX"].split()
 def state(pane):
@@ -427,7 +485,9 @@ print("fake TUI: PASS")
                             client.settimeout(5)
                             recv_http(client)
                             client.sendall(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
-                            self.assertEqual(recv_message(client)["method"], "thread/start")
+                            start = recv_message(client)
+                            self.assertEqual(start["method"], "thread/start")
+                            self.assertEqual(start["params"]["cwd"], str(client_cwd.resolve()))
                             client.sendall(frame({"id":1,"result":{"thread":{"id":"mine", "status":{"type":"idle"}}}}))
                             self.assertEqual(recv_message(client)["method"], "turn/start")
                             client.sendall(frame({"method":"turn/started", "params":{"threadId":"mine","turn":{"id":"turn1","status":"inProgress"}}}))
@@ -444,7 +504,7 @@ print("fake TUI: PASS")
                 worker = threading.Thread(target=serve)
                 worker.start()
                 try:
-                    result = subprocess.run([str(ROOT / "adapters/codex-tmux")], env=env,
+                    result = subprocess.run([str(ROOT / "adapters/codex-tmux")], env=env, cwd=client_cwd,
                                             capture_output=True, text=True, timeout=15, check=False)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn("fake TUI: PASS", result.stdout)

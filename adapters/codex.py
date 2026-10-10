@@ -450,6 +450,33 @@ def launch(args: list[str]) -> int:
         os.execvp(binary, [binary, *args])
     if any(x == "--remote" or x.startswith("--remote=") for x in args):
         raise RuntimeError("codex-tmux supports the local shared daemon, not --remote; use codex directly")
+    # --remote does not inherit the client's cwd. Resolve directory overrides
+    # here, but leave resumed/forked sessions in their recorded directory.
+    args = args.copy()
+    value_options = {"-c", "--config", "--enable", "--disable", "--remote-auth-token-env",
+                     "-i", "--image", "-m", "--model", "--local-provider", "-p", "--profile",
+                     "-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd", "--add-dir"}
+    action, has_cwd, skip_value = None, False, False
+    for i, arg in enumerate(args):
+        if skip_value:
+            skip_value = False
+            continue
+        if arg == "--":
+            break
+        if arg in ("-C", "--cd"):
+            has_cwd = True
+            if i + 1 < len(args) and args[i + 1] and not args[i + 1].startswith("-"):
+                args[i + 1] = os.path.abspath(args[i + 1])
+        elif arg.startswith(("--cd=", "-C")):
+            has_cwd = True
+            prefix = "--cd=" if arg.startswith("--cd=") else "-C=" if arg.startswith("-C=") else "-C"
+            if arg[len(prefix):]:
+                args[i] = prefix + os.path.abspath(arg[len(prefix):])
+        elif action is None and not arg.startswith("-"):
+            action = arg
+        skip_value = arg in value_options
+    if not has_cwd and action not in commands | {"resume", "fork", "agents", "a"}:
+        args = ["--cd", os.getcwd(), *args]
     command = os.environ.get("TMUX_STATUS_TMUX", "tmux").split()
     if os.environ.get("TMUX") and not os.environ.get("TMUX_STATUS_TMUX"):
         command = ["tmux", "-S", os.environ["TMUX"].split(",")[0]]

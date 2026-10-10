@@ -252,6 +252,9 @@ broadcast events never bind a pane. The relay forwards the original bytes
 unchanged, including approval requests, and introduces no model requests,
 terminal scraping, heartbeat or additional daemon. New sessions publish `ready`
 from the explicit start result; resumed sessions use the reported thread status.
+New sessions use the launcher's current working directory, not the daemon's.
+Explicit `-C`/`--cd` paths are resolved on the client; `resume`/`fork` without
+a directory override keep the session's recorded working directory.
 
 **Shared-daemon state comes from native JSON-RPC, not hooks.** Codex's
 `--remote` TUI can disable `features.hooks` for its sessions even when `/hooks`
