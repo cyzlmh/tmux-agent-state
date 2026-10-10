@@ -408,6 +408,17 @@ class LauncherIntegration(unittest.TestCase):
     """Real relay/launcher + real tmux, fake Codex protocol (no inference)."""
     @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
     def test_shared_daemon_native_events_and_hook_targeting(self):
+        self.run_launcher("start")
+
+    @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
+    def test_resume_picker_with_overlapping_connections(self):
+        self.run_launcher("resume")
+
+    @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
+    def test_fork_picker_with_overlapping_connections(self):
+        self.run_launcher("fork")
+
+    def run_launcher(self, action):
         with tempfile.TemporaryDirectory(prefix="cx-test-", dir="/tmp") as directory:
             root = Path(directory)
             client_cwd = root / "client project"
@@ -423,7 +434,7 @@ class LauncherIntegration(unittest.TestCase):
                 other = subprocess.check_output(command + ["split-window", "-d", "-P", "-F", "#{pane_id}"], text=True).strip()
                 subprocess.run(command + ["set-option", "-p", "-t", other, "@agent-state", "untouched"], check=True)
                 env.update(TMUX_PANE=pane, TMUX="/irrelevant/socket,1,0", TEST_OTHER_PANE=other,
-                           TEST_DAEMON_SOCKET=str(sock), TEST_ROOT=str(ROOT))
+                           TEST_DAEMON_SOCKET=str(sock), TEST_ROOT=str(ROOT), TEST_ACTION=action)
                 fake = root / "codex"
                 fake.write_text('''#!/usr/bin/env python3
 import sys, os, socket, json, subprocess
@@ -431,12 +442,20 @@ sys.path.insert(0, os.environ["TEST_ROOT"] + "/tests")
 from test_codex_helpers import frame, recv_message, recv_http
 if sys.argv[1:4] == ["app-server", "daemon", "version"]:
  print(json.dumps({"status":"running", "socketPath":os.environ["TEST_DAEMON_SOCKET"]})); sys.exit(0)
-s = socket.socket(socket.AF_UNIX); s.settimeout(5)
-s.connect(sys.argv[sys.argv.index("--remote")+1].removeprefix("unix://"))
-s.sendall(b"GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n")
-recv_http(s)
+def connect():
+ s = socket.socket(socket.AF_UNIX); s.settimeout(2)
+ s.connect(sys.argv[sys.argv.index("--remote")+1].removeprefix("unix://"))
+ s.sendall(b"GET / HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n")
+ recv_http(s)
+ return s
+action = os.environ["TEST_ACTION"]
+picker = connect() if action != "start" else None
+if picker:
+ picker.sendall(frame({"id":1,"method":"thread/list","params":{}}, mask=True))
+ assert recv_message(picker)["result"]["data"] == []
+s = connect()
 cwd = sys.argv[sys.argv.index("--cd")+1] if "--cd" in sys.argv else None
-s.sendall(frame({"id":1,"method":"thread/start","params":{"cwd":cwd}}, mask=True))
+s.sendall(frame({"id":1,"method":"thread/"+action,"params":{"cwd":cwd}}, mask=True))
 assert recv_message(s)["result"]["thread"]["id"] == "mine"
 cmd = os.environ["TMUX_STATUS_TMUX"].split()
 def state(pane):
@@ -455,6 +474,11 @@ assert json.loads(state(os.environ["TMUX_PANE"]))["state"] == "busy"
 s.sendall(frame({"id":101,"method":"test/ack"}, mask=True))
 assert recv_message(s)["method"] == "turn/completed"
 assert json.loads(state(os.environ["TMUX_PANE"]))["detail"] == "done"
+if picker:
+ picker.sendall(frame({"id":1,"method":"test/broadcast"}, mask=True))
+ assert recv_message(picker)["result"]["thread"]["id"] == "foreign"
+ assert recv_message(picker)["method"] == "thread/status/changed"
+ assert json.loads(state(os.environ["TMUX_PANE"]))["detail"] == "done"
 assert state(os.environ["TEST_OTHER_PANE"]) == "untouched"
 for args, expected in [(["--state","busy","--detail","working"],"busy"),(["--state","waiting","--detail","done"],"waiting")]:
  env = dict(os.environ,TMUX_PANE=os.environ["TEST_OTHER_PANE"])
@@ -465,6 +489,7 @@ for args, expected in [(["--state","busy","--detail","working"],"busy"),(["--sta
 subprocess.run(["bash",os.environ["TEST_ROOT"]+"/adapters/agent-state.sh","--agent","codex","--codex-target","--clear"],input='{"session_id":"foreign"}',text=True,env=dict(os.environ,TMUX_PANE=os.environ["TEST_OTHER_PANE"]),check=True)
 assert state(os.environ["TEST_OTHER_PANE"]) == "untouched"
 s.close()
+if picker: picker.close()
 print("fake TUI: PASS")
 ''')
                 fake.chmod(0o755)
@@ -479,15 +504,23 @@ print("fake TUI: PASS")
                 server.listen(1)
                 server.settimeout(10)
                 def serve():
+                    picker = None
                     try:
+                        if action != "start":
+                            picker, _ = server.accept()
+                            picker.settimeout(5)
+                            recv_http(picker)
+                            picker.sendall(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
+                            self.assertEqual(recv_message(picker)["method"], "thread/list")
+                            picker.sendall(frame({"id":1,"result":{"data":[]}}))
                         client, _ = server.accept()
                         with client:
                             client.settimeout(5)
                             recv_http(client)
                             client.sendall(b"HTTP/1.1 101 Switching Protocols\r\n\r\n")
                             start = recv_message(client)
-                            self.assertEqual(start["method"], "thread/start")
-                            self.assertEqual(start["params"]["cwd"], str(client_cwd.resolve()))
+                            self.assertEqual(start["method"], "thread/" + action)
+                            self.assertEqual(start["params"]["cwd"], str(client_cwd.resolve()) if action == "start" else None)
                             client.sendall(frame({"id":1,"result":{"thread":{"id":"mine", "status":{"type":"idle"}}}}))
                             self.assertEqual(recv_message(client)["method"], "turn/start")
                             client.sendall(frame({"method":"turn/started", "params":{"threadId":"mine","turn":{"id":"turn1","status":"inProgress"}}}))
@@ -497,14 +530,22 @@ print("fake TUI: PASS")
                             client.sendall(frame({"method":"thread/status/changed", "params":{"threadId":"mine","status":{"type":"active","activeFlags":[]}}}))
                             self.assertEqual(recv_message(client)["id"], 101)
                             client.sendall(frame({"method":"turn/completed", "params":{"threadId":"mine","turn":{"id":"turn1","status":"completed"}}}))
+                            if picker:
+                                self.assertEqual(recv_message(picker)["method"], "test/broadcast")
+                                picker.sendall(frame({"id":1,"result":{"thread":{"id":"foreign"}}}))
+                                picker.sendall(frame({"method":"thread/status/changed", "params":{"threadId":"mine","status":{"type":"active","activeFlags":[]}}}))
                             while client.recv(1024):
                                 pass
                     except (AssertionError, OSError, RuntimeError, ValueError) as e:
                         errors.append(e)
+                    finally:
+                        if picker is not None:
+                            picker.close()
                 worker = threading.Thread(target=serve)
                 worker.start()
                 try:
-                    result = subprocess.run([str(ROOT / "adapters/codex-tmux")], env=env, cwd=client_cwd,
+                    args = [] if action == "start" else [action]
+                    result = subprocess.run([str(ROOT / "adapters/codex-tmux"), *args], env=env, cwd=client_cwd,
                                             capture_output=True, text=True, timeout=15, check=False)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn("fake TUI: PASS", result.stdout)

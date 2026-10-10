@@ -255,6 +255,8 @@ from the explicit start result; resumed sessions use the reported thread status.
 New sessions use the launcher's current working directory, not the daemon's.
 Explicit `-C`/`--cd` paths are resolved on the client; `resume`/`fork` without
 a directory override keep the session's recorded working directory.
+Picker, preflight and TUI connections can overlap; each connection has its own
+request tracking and thread binding, so picker traffic cannot change TUI state.
 
 **Shared-daemon state comes from native JSON-RPC, not hooks.** Codex's
 `--remote` TUI can disable `features.hooks` for its sessions even when `/hooks`

@@ -327,7 +327,7 @@ class Frames:
 
 def relay(client: socket.socket, upstream: socket.socket, observer: Observer,
           stop: threading.Event) -> None:
-    """One client per launcher. Observe each message before forwarding its bytes."""
+    """One transport connection. Observe each message before forwarding its bytes."""
     with client, upstream, selectors.DefaultSelector() as sel:
         client.settimeout(5)
         upstream.settimeout(5)
@@ -492,17 +492,36 @@ def launch(args: list[str]) -> int:
         raise RuntimeError("Codex did not report a daemon socketPath (requires Codex 0.161+)")
     if not isinstance(upstream_path, str):
         raise TypeError("invalid daemon socketPath")
-    binding = Binding(command, pane)
     stop = threading.Event()
+    connections: list[threading.Thread] = []
     # Short private socket path avoids macOS's 104-byte Unix path limit.
     directory = tempfile.mkdtemp(prefix="codex-tmux-", dir="/tmp")
     path = str(Path(directory) / "relay.sock")
     server = socket.socket(socket.AF_UNIX)
     server.bind(path)
-    server.listen(1)
+    server.listen()
     server.settimeout(0.2)
 
-    def serve() -> None:
+    def serve(client: socket.socket) -> None:
+        upstream = None
+        binding = None
+        try:
+            # Picker/preflight connections must not observe a TUI's binding.
+            binding = Binding(command, pane)
+            upstream = socket.socket(socket.AF_UNIX)
+            upstream.settimeout(5)
+            upstream.connect(upstream_path)
+            relay(client, upstream, Observer(binding), stop)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+            print(f"codex-tmux: relay: {e}", file=sys.stderr)
+            client.close()
+            if upstream is not None:
+                upstream.close()
+        finally:
+            if binding is not None:
+                binding.close()
+
+    def accept_clients() -> None:
         while not stop.is_set():
             try:
                 client, _ = server.accept()
@@ -510,21 +529,11 @@ def launch(args: list[str]) -> int:
                 continue
             except OSError:
                 return
-            upstream = None
-            try:
-                upstream = socket.socket(socket.AF_UNIX)
-                upstream.settimeout(5)
-                upstream.connect(upstream_path)
-                # RPC ids are connection-local; don't reuse pending requests
-                # from a disconnected transport when the TUI reconnects.
-                relay(client, upstream, Observer(binding), stop)
-            except (OSError, RuntimeError) as e:
-                print(f"codex-tmux: relay: {e}", file=sys.stderr)
-                client.close()
-                if upstream is not None:
-                    upstream.close()
+            connection = threading.Thread(target=serve, args=(client,), daemon=True)
+            connections.append(connection)
+            connection.start()
 
-    worker = threading.Thread(target=serve, daemon=True)
+    worker = threading.Thread(target=accept_clients, daemon=True)
     worker.start()
     process = None
     try:
@@ -536,9 +545,10 @@ def launch(args: list[str]) -> int:
         return code if code >= 0 else 128 - code
     finally:
         stop.set()
-        worker.join(timeout=15)
         server.close()
-        binding.close()
+        worker.join(timeout=15)
+        for connection in connections:
+            connection.join(timeout=15)
         shutil.rmtree(directory, ignore_errors=True)
 
 
