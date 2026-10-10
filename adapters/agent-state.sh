@@ -27,6 +27,8 @@
 #                        types (auth_success, agent_completed, quota_*, …) are
 #                        dropped instead of forcing a waiting/asking state.
 #                        Combine with --guard on claude, which always uses both.
+#   --codex-target       resolve Codex session_id using codex-tmux's binding;
+#                        never trust a shared daemon's inherited TMUX_PANE.
 #   --adapter-version N  ignored marker; lets install.sh --check report which
 #                        template version is installed.
 #
@@ -45,6 +47,7 @@ state=""
 detail=""
 guard=0
 notify=0
+codex_target=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -53,6 +56,7 @@ while [ "$#" -gt 0 ]; do
         --detail) detail="${2:-}"; shift 2 ;;
         --guard) guard=1; shift ;;
         --notify) notify=1; shift ;;
+        --codex-target) codex_target=1; shift ;;
         --adapter-version) shift 2 ;;
         --clear) state=""; shift ;;
         *)
@@ -61,6 +65,20 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+# Codex's shared daemon inherits an unrelated (possibly still live) pane.
+# Resolve session_id through the launcher's explicit binding before doing any
+# normal env/foreground fallback. The resolver re-enters this script without
+# --codex-target once it has a verified target. Local hooks use real ancestry.
+if [ "$codex_target" = 1 ]; then
+    args=(--agent codex)
+    if [ -n "$state" ]; then
+        args+=(--state "$state" --detail "$detail")
+    else
+        args+=(--clear)
+    fi
+    exec python3 "$(dirname "$0")/codex.py" hook "${args[@]}"
+fi
 
 # Hook payload handling. Both flags need the JSON the agent pipes to hooks on
 # stdin, so they share one read; the verdict is one line on stdout:

@@ -81,6 +81,21 @@ raw=$(get_state "$P2")
 echo "$raw" | grep -q '"tool":"sleep"' || fail "unrelated pane must keep its state: $raw"
 pass "fallback never writes to a guessed pane"
 
+# 4d. v4 local Codex hooks prove ancestry even with a wrong-but-live env pane.
+LOCAL_CODEX_HOME="$(mktemp -d)"
+register_tmp_file "$LOCAL_CODEX_HOME"
+tmux_cmd send-keys -t "$P3" \
+    "printf '%s' '{\"session_id\":\"local-test\"}' | env CODEX_HOME='$LOCAL_CODEX_HOME' TMUX_PANE='$P2' TMUX_STATUS_TMUX='tmux -L $SOCK' bash '$AGENT_STATE' --agent codex --codex-target --state waiting --detail asking" Enter
+raw=""
+for _ in $(seq 1 60); do
+    raw=$(get_state "$P3")
+    echo "$raw" | grep -q '"detail":"asking"' && break
+    sleep 0.05
+done
+echo "$raw" | grep -q '"detail":"asking"' || fail "local Codex ancestry routing: $raw"
+echo "$(get_state "$P2")" | grep -q '"tool":"sleep"' || fail "local Codex wrote inherited pane"
+pass "Codex v4 local hooks ignore wrong live TMUX_PANE"
+
 # 5. templates: valid JSON, all expected events, placeholder replaced by install
 for tmpl in claude codex; do
     python3 - "$ROOT_DIR/adapters/$tmpl-hooks.json" "$tmpl" <<'EOF' || fail "template check failed"
@@ -101,13 +116,15 @@ if name == "codex":
     # would be dead config.
     expected.update({"Interrupt"})
 assert events == expected, f"{name}: events {events ^ expected}"
-version = {"claude": "2", "codex": "3"}[name]
+version = {"claude": "2", "codex": "4"}[name]
 for ev, groups in d["hooks"].items():
     for g in groups:
         cmd = g["hooks"][0]["command"]
         assert "__AGENT_STATE__" in cmd, f"{name}/{ev}: placeholder missing: {cmd}"
         assert "--agent {name}".format(name=name) in cmd or "--clear" in cmd, f"{name}/{ev}: wrong agent: {cmd}"
         assert f"--adapter-version {version}" in cmd, f"{name}/{ev}: version marker missing: {cmd}"
+        if name == "codex":
+            assert "--codex-target" in cmd, f"codex/{ev}: explicit session routing missing: {cmd}"
         if name == "claude" and "--clear" not in cmd:
             assert "--guard" in cmd, f"claude/{ev}: subagent guard missing: {cmd}"
         # Notification carries many unrelated types; only the needs-input ones
@@ -257,7 +274,7 @@ ptf = d["hooks"].get("PostToolUseFailure", [])
 assert all("agent-state.sh" not in json.dumps(g) for g in ptf), f"our stale entry kept: {ptf}"
 assert any("keep-me" in json.dumps(g) for g in ptf), "other tool's hook dropped"
 stops = json.dumps(d["hooks"]["Stop"])
-assert "--adapter-version 3" in stops and "/old/" not in stops, f"Stop not refreshed to v3: {stops}"
+assert "--adapter-version 4" in stops and "/old/" not in stops, f"Stop not refreshed to v4: {stops}"
 EOF
 pass "install drops our entries for removed events"
 

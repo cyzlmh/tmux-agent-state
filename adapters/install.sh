@@ -221,7 +221,9 @@ step() {  # $1 agent-name; check mode reports drift, install mode rewrites
         claude) install_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude" ;;
         codex)
             install_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex"
-            echo "codex: run /hooks inside codex and trust the tmux-agent-state hooks before they run."
+            echo "codex: launch with $REPO_DIR/adapters/codex-tmux (shared daemon, Codex 0.161+)."
+            echo "codex: shared-daemon native reporting needs no hook trust; for local (--no-daemon) hooks, trust them in /hooks."
+            echo "codex: existing plain-codex TUIs must be reopened with codex-tmux; no daemon restart needed."
             ;;
         kimi) install_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE" ;;
     esac

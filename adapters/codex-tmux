@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Shell aliases do not affect Python's lookup of the real codex executable.
+# Override TMUX_AGENT_CODEX_BIN if codex is not on PATH.
+set -euo pipefail
+exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/codex.py" "$@"

@@ -24,8 +24,10 @@ fact (the pane foreground command), not a guess.
 
 A **tmux pane-scoped user option** named `@agent-state`.
 
-tmux sets the env var `$TMUX_PANE` (e.g. `%287`) for every process running in a
-pane, so an adapter always knows which pane to write.
+tmux sets the env var `$TMUX_PANE` (e.g. `%287`) for processes running in a
+pane. Detached/shared servers cannot use their inherited value as the client's
+identity: Codex's shared daemon uses the launcher's explicit session→pane/socket
+binding instead (see Per-tool adapters).
 
 Write (adapter, from inside the pane):
 
@@ -113,7 +115,8 @@ reported stop reason, not from inspecting the output text.
    agent.)
 3. **Clear on shutdown** (`set-option -u -p`) so stale data does not linger
    after the agent exits and the shell returns.
-4. If `$TMUX_PANE` is unset (not running inside tmux), the adapter is a no-op.
+4. Without a verified tmux target the adapter is a no-op. In-process adapters
+   use `$TMUX_PANE`; shared-daemon hooks require an explicit session binding.
 5. **Subagent events are not state.** Hook payloads carrying a subagent id
    (claude: `agent_id`) belong to a nested agent and must not overwrite the
    main pane's state (`--guard` in `agent-state.sh`). Do not subscribe to
@@ -201,11 +204,29 @@ Payload (single-line JSON):
 | ----------- | ------------------------------------ | --------------------------------------------------------- |
 | **pi**      | TypeScript extension (this repo)     | `input`/`agent_start`→busy, `agent_settled`→waiting (`done` / `truncated` / `error` from the turn's stop reason), `ui_prompt_start`/`ui_prompt_end`→waiting/asking (pi ≥ 0.84.4), blocking tool→waiting/asking |
 | **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`ElicitationResult`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Notification` (needs-input types only)→waiting/asking, `Stop`/`StopFailure`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
-| **codex**   | `~/.codex/hooks.json` hooks          | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`→busy, `PermissionRequest`→waiting/asking, `Stop`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **codex**   | `codex-tmux` native JSON-RPC; hooks for local mode | native: turn start/active→busy, blocking requests/waiting flags→asking, completion/interruption→done, failed completion/system error→error; local hooks: prompt/tools→busy, permission→asking, Stop/Interrupt→done, SessionStart→ready, SessionEnd→clear |
 | **kimi**    | `~/.kimi-code/config.toml` hooks     | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`PermissionResult`→busy, `PermissionRequest`→waiting/asking, `Stop`/`StopFailure`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
 | **zsh**     | none — `pane_current_command=zsh` ⇒ waiting (tmux fact, exact) | |
 
 Notes on the hook adapters:
+
+- **Codex shared-daemon targeting (v4).** `codex-tmux` transparently relays the
+  TUI's local Unix WebSocket connection to the existing daemon. Only successful
+  responses to this client's start/resume/fork requests bind thread IDs to the
+  originating pane and tmux socket; broadcasts never establish ownership.
+  Hooks route `session_id` using private `$CODEX_HOME/tmux-agent-state` files,
+  checking launcher PID/start identity, pane existence and `@agent-codex-owner`.
+  Thread switches invalidate old ownership; stale/ambiguous events are dropped,
+  never guessed from the daemon's environment, cwd or terminal text. One thread
+  has one current compatibility-hook owner (the most recent explicit attachment).
+  **Native reporting is authoritative in shared mode:** `--remote` clients can
+  disable per-session hooks despite enabled/trusted definitions. The relay
+  instead consumes selected-thread `turn/started`, `turn/completed`,
+  `thread/status/changed`, blocking approval/input/elicitation requests and their
+  resolution. Failed completions report `error`; idle following failure preserves
+  that detail. Nonblocking requests and unrelated thread events are ignored;
+  repeated states are deduplicated. Non-daemon hooks prove their pane from real
+  ancestry. The wire payload and reader rules are unchanged. See README.md.
 
 - **Interrupt/StopFailure matter.** A turn that ends by interrupt (Esc) or by an
   API error does not always fire the agent's normal `Stop` event. codex does not
@@ -213,13 +234,14 @@ Notes on the hook adapters:
   `Stop` on API errors — without those events the pane would stay `busy` until
   something else happened. claude has no interrupt event, so an Esc'd claude
   turn stays busy until the next prompt; that is an upstream gap, not a bug here.
-- **codex has no failure events.** Its hook enum (checked against 0.160) has
+- **Codex's local hooks have no failure events.** Its hook enum (checked against 0.160) has
   no `StopFailure`/`PostToolUseFailure`, and unknown events in hooks.json are
   silently ignored — the template deliberately doesn't subscribe them.
   `Stop` fires only on a normally completed turn and `Interrupt` only on Esc,
   so a codex turn that dies on an API error leaves the pane `busy` until the
   next prompt or `SessionEnd`. `PostToolUse` likewise fires only on
-  successful tool calls. All upstream gaps, not adapter bugs.
+  successful tool calls. These gaps affect local hooks only; the shared-daemon
+  native reporter handles failed `turn/completed` events explicitly.
 - **codex `PermissionRequest` needs prompts enabled.** It fires only when
   codex actually asks for approval; with `approval_policy = "never"` nothing
   ever asks, so `waiting/asking` never appears.

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state waiting --detail ready --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state waiting --detail ready --codex-target --adapter-version 4"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --codex-target --adapter-version 4"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --codex-target --adapter-version 4"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state busy --detail working --codex-target --adapter-version 4"
           }
         ]
       }
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state waiting --detail asking --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state waiting --detail asking --codex-target --adapter-version 4"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state waiting --detail done --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state waiting --detail done --codex-target --adapter-version 4"
           }
         ]
       }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --agent codex --state waiting --detail done --adapter-version 3"
+            "command": "__AGENT_STATE__ --agent codex --state waiting --detail done --codex-target --adapter-version 4"
           }
         ]
       }
@@ -75,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "__AGENT_STATE__ --clear --adapter-version 3"
+            "command": "__AGENT_STATE__ --clear --codex-target --adapter-version 4"
           }
         ]
       }

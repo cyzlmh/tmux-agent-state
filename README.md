@@ -19,6 +19,8 @@ tmux-agent-state/
     claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PostToolUseFailure/PermissionRequest/Elicitation/ElicitationResult/
                        Notification/Stop/StopFailure/SessionEnd)
+    codex-tmux        Codex TUI launcher: binds daemon thread IDs to the originating pane
+    codex.py          Unix WebSocket relay + native state reporting + local hook resolver (stdlib)
     codex-hooks.json   codex hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PermissionRequest/Stop/Interrupt/SessionEnd)
     kimi-hooks.toml    kimi hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
@@ -73,7 +75,10 @@ ln -s ~/tmux-agent-state/adapters/pi/agent-state.ts ~/.pi/agent/extensions/agent
 
 # 3. claude/codex/kimi adapters (optional): merges hooks into their configs
 ~/tmux-agent-state/adapters/install.sh          # all, or: install.sh claude | codex | kimi
-# after installing codex hooks: run /hooks inside codex and trust them
+# Codex shared daemon (0.161+): launch through codex-tmux (native events, no hook trust needed)
+~/tmux-agent-state/adapters/codex-tmux
+# optional shell alias (put in ~/.zshrc or ~/.bashrc):
+# alias codex="$HOME/tmux-agent-state/adapters/codex-tmux"
 # later, after git pull: install.sh --check reports wiring drift and adapter
 # versions (installed vX -> template vY), no writes
 ```
@@ -222,7 +227,7 @@ Principles:
 | ------- | ---- | ------ |
 | pi      | TS extension (`adapters/pi/agent-state.ts`) | done, e2e verified |
 | claude  | hooks (`adapters/claude-hooks.json`) | done — `adapters/install.sh claude` |
-| codex   | hooks (`adapters/codex-hooks.json`) | done — `adapters/install.sh codex`, then re-trust in `/hooks` |
+| codex   | native JSON-RPC launcher + local hooks | shared daemon: launch via `codex-tmux`; local mode: install hooks and trust in `/hooks` |
 | kimi    | hooks (`adapters/kimi-hooks.toml`) | done — `adapters/install.sh kimi` |
 | zsh     | none (`pane_current_command` ⇒ waiting, exact) | n/a |
 
@@ -232,7 +237,67 @@ older template needs re-installing. Re-running `install.sh` rewrites the hooks
 in place (idempotent) — for codex, run `/hooks` afterwards to trust the new
 definitions, since codex pins a hash per hook.
 
-### codex caveats (upstream, not fixable from the adapter)
+### Codex shared daemon (0.161+)
+
+The shared app-server runs hooks outside the TUI's process tree and inherits
+`TMUX_PANE` from the daemon's original launch, not the current client. That
+pane can be dead **or still belong to another agent**. Reinstalling/trusting
+hooks alone cannot fix this.
+
+Launch interactive sessions with `adapters/codex-tmux` (or the shell alias
+above). It connects the TUI to the existing daemon through a private Unix
+WebSocket relay. Successful replies to **this client's** `thread/start`,
+`thread/resume` and `thread/fork` requests establish the thread→pane binding;
+broadcast events never bind a pane. The relay forwards the original bytes
+unchanged, including approval requests, and introduces no model requests,
+terminal scraping, heartbeat or additional daemon. New sessions publish `ready`
+from the explicit start result; resumed sessions use the reported thread status.
+
+**Shared-daemon state comes from native JSON-RPC, not hooks.** Codex's
+`--remote` TUI can disable `features.hooks` for its sessions even when `/hooks`
+shows all definitions enabled and trusted. Therefore startup-only `ready` is
+not sufficient verification. The relay reports the selected thread's:
+
+| native event | state |
+| --- | --- |
+| `turn/started`, active thread without blocking flags | `busy/working` |
+| blocking approval/input/elicitation request, active waiting flags | `waiting/asking` |
+| request resolved (while the turn is active) | `busy/working` |
+| `turn/completed`: completed/interrupted | `waiting/done` |
+| `turn/completed`: failed / thread system error | `waiting/error` |
+
+Only actual transitions write to tmux; token/tool output does not. Unrelated
+thread/subagent events are ignored, and nonblocking input requests never cause
+`asking`. An idle status after a failure does not turn `error` into success.
+Thread switches invalidate old ownership. Each relay observes only its selected
+thread, so broadcasts cannot steal another pane's identity.
+
+V4 hooks remain available for local (`--no-daemon`) mode using verified process
+ancestry. For hooks that do execute in a shared server, `session_id` can also use
+the private binding, validated against socket, pane, launcher PID/start identity
+and `@agent-codex-owner`. That compatibility hook route has one current owner per
+thread (the most recent attachment); native reporting does not depend on it.
+
+- **Existing TUIs:** reopen them using `codex-tmux` (e.g. `codex-tmux resume`);
+  restarting the shared daemon is neither required nor recommended.
+- **Local mode:** `codex --no-daemon` still works with v4 hooks via verified
+  process ancestry, without the launcher. Plain shared-daemon `codex` does not
+  register a binding and is intentionally untracked.
+- **CLI utilities:** `codex-tmux exec`, `--help`, `--version`, `--no-daemon`, and
+  invocations outside tmux pass through to the real Codex executable.
+  `TMUX_AGENT_CODEX_BIN` overrides that executable. Remote servers (`--remote`)
+  are not supported by the launcher; use Codex directly for those.
+- **Files:** bindings live in `$CODEX_HOME/tmux-agent-state` (default
+  `~/.codex/tmux-agent-state`), private to the user. Normal launcher exit removes
+  its bindings and clears only its own Codex state; crashes may leave stale
+  files/state, but stale bindings cannot target another pane. Relay sockets are
+  private temporary directories under `/tmp`, removed on normal exit.
+- **Upgrade:** reopen the TUI through `codex-tmux` to load updated relay code;
+  shared-daemon native reporting requires no hook trust or daemon restart. For
+  local mode, install/re-trust v4 hooks. The installer never grants hook trust
+  or changes shell startup files.
+
+### Codex local-hook caveats (not applicable to native reporting)
 
 - **a failed turn stays `busy`.** codex fires `Stop` only when a turn
   completes normally and `Interrupt` only on Esc; its hook enum has no
