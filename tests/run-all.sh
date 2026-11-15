@@ -32,7 +32,7 @@ echo "==> integration: status segment on isolated tmux socket"
 echo "==> integration: state coloring on isolated tmux socket"
 "$ROOT_DIR/tests/test-colorize.sh"
 
-echo "==> integration: hook-based adapters (claude/codex/kimi)"
+echo "==> integration: hook-based adapters (claude/codex/kimi/codebuddy/qoder/qoder-cn)"
 "$ROOT_DIR/tests/test-agent.sh"
 
 echo "==> integration: wait primitive on isolated tmux socket"

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# tmux-agent-state adapter for hook-based agents (claude code / codex / kimi code).
+# tmux-agent-state adapter for hook-based agents (claude code / codex / kimi code /
+# codebuddy / qoder / qoder-cn).
 #
 # Writes the @agent-state pane option from agent lifecycle events, exactly
-# like adapters/pi/agent-state.ts but invoked from shell hooks (see claude-hooks.json
-# / codex-hooks.json / kimi-hooks.toml; install.sh wires them up). No heartbeat (PROTOCOL.md):
+# like adapters/pi/agent-state.ts but invoked from shell hooks (see the *-hooks
+# templates; install.sh wires them up). No heartbeat (PROTOCOL.md):
 # the reader decides liveness from the pane foreground command, so hooks only
 # write on real state transitions.
 #
@@ -22,11 +23,11 @@
 #                        payloads are reported as usual.
 #   --notify             read the hook JSON from stdin and only report when it
 #                        carries a notification_type that means "needs input"
-#                        (claude Notification: permission_prompt / idle_prompt /
-#                        agent_needs_input / elicitation*). Other notification
-#                        types (auth_success, agent_completed, quota_*, …) are
-#                        dropped instead of forcing a waiting/asking state.
-#                        Combine with --guard on claude, which always uses both.
+#                        (Claude-compatible Notification: permission_prompt /
+#                        idle_prompt / agent_needs_input / elicitation*). Other
+#                        notification types (auth_success, agent_completed,
+#                        quota_*, …) are dropped instead of forcing waiting/asking.
+#                        Claude-compatible adapters combine this with --guard.
 #   --codex-target       resolve Codex session_id using codex-tmux's binding;
 #                        never trust a shared daemon's inherited TMUX_PANE.
 #   --adapter-version N  ignored marker; lets install.sh --check report which
@@ -83,7 +84,7 @@ fi
 # Hook payload handling. Both flags need the JSON the agent pipes to hooks on
 # stdin, so they share one read; the verdict is one line on stdout:
 #   drop              subagent event -> never touch the main pane's state
-#   notify:<type>     claude Notification -> only needs-input types are reported
+#   notify:<type>     Notification -> only needs-input types are reported
 #   keep              report as usual (also the fail-open verdict)
 # (SubagentStop is not subscribed in claude-hooks.json at all, so it can never
 # revive an idle pane. Guard/notify failures fail open.)

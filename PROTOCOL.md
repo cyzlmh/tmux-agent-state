@@ -1,6 +1,6 @@
 # tmux-agent-state protocol
 
-A tiny contract so CLI agents (pi / claude code / codex / …) running inside tmux
+A tiny contract so CLI agents (pi / claude code / codex / qoder / …) running inside tmux
 panes can report **"am I waiting for the user or not"** to an external
 visualiser/monitor, without the visualiser having to guess from screen content.
 
@@ -206,6 +206,9 @@ Payload (single-line JSON):
 | **claude**  | `~/.claude/settings.json` hooks      | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`ElicitationResult`→busy, `PermissionRequest`/`Elicitation`→waiting/asking, `Notification` (needs-input types only)→waiting/asking, `Stop`/`StopFailure`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
 | **codex**   | `codex-tmux` native JSON-RPC; hooks for local mode | native: turn start/active→busy, blocking requests/waiting flags→asking, completion/interruption→done, failed completion/system error→error; local hooks: prompt/tools→busy, permission→asking, Stop/Interrupt→done, SessionStart→ready, SessionEnd→clear |
 | **kimi**    | `~/.kimi-code/config.toml` hooks     | `UserPromptSubmit`/`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`PermissionResult`→busy, `PermissionRequest`→waiting/asking, `Stop`/`StopFailure`/`Interrupt`→waiting/done, `SessionStart`→ready, `SessionEnd`→clear |
+| **codebuddy** | `~/.codebuddy/settings.json` hooks | same event mapping as claude; needs `/hooks` review when CodeBuddy prompts for external changes |
+| **qoder**   | `~/.qoder/settings.json` hooks     | same event mapping as claude |
+| **qoder-cn** | `~/.qoder-cn/settings.json` hooks | same event mapping as claude |
 | **zsh**     | none — `pane_current_command=zsh` ⇒ waiting (tmux fact, exact) | |
 
 Notes on the hook adapters:
@@ -234,6 +237,11 @@ Notes on the hook adapters:
   `Stop` on API errors — without those events the pane would stay `busy` until
   something else happened. claude has no interrupt event, so an Esc'd claude
   turn stays busy until the next prompt; that is an upstream gap, not a bug here.
+  codebuddy/qoder/qoder-cn likewise have no documented `Interrupt` hook;
+  CodeBuddy explicitly documents that user interruption does not fire `Stop`.
+- **CodeBuddy headless cleanup gap.** In a 2.184.0 `--print` / `-p` smoke test,
+  CodeBuddy did not emit `SessionEnd`. The last state can therefore remain after
+  a one-shot run; the reader correctly calls it `stale` once the shell returns.
 - **Codex's local hooks have no failure events.** Its hook enum (checked against 0.160) has
   no `StopFailure`/`PostToolUseFailure`, and unknown events in hooks.json are
   silently ignored — the template deliberately doesn't subscribe them.
@@ -249,10 +257,12 @@ Notes on the hook adapters:
   (`auth_success`, `agent_completed`, `quota_*`, …), so the hook passes
   `--notify` and only the needs-input types (`permission_prompt`, `idle_prompt`,
   `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`,
-  `worker_permission_prompt`) are reported. kimi's `Notification` is not
-  subscribed at all: it only reports background-task status (`task.<status>`),
-  which is not an attention state.
-- **Subagent events are dropped** (`--guard`), see Writer rule 5.
+  `worker_permission_prompt`) are reported. The same filter is used by
+  codebuddy/qoder/qoder-cn. kimi's `Notification` is not subscribed at all: it
+  only reports background-task status (`task.<status>`), which is not an
+  attention state.
+- **Subagent events are dropped** (`--guard`) for claude and the three
+  Claude-compatible adapters, see Writer rule 5.
 
 All adapters write the **same** `@agent-state` payload, so the reader is
 tool-agnostic: it just trusts the freshest writer on the pane.

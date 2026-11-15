@@ -2,8 +2,8 @@
 
 [![test](https://github.com/cyzlmh/tmux-agent-state/actions/workflows/test.yml/badge.svg)](https://github.com/cyzlmh/tmux-agent-state/actions/workflows/test.yml)
 
-Let CLI agents running in tmux panes (pi / claude code / codex / kimi code)
-report whether
+Let CLI agents running in tmux panes (pi / claude code / codex / kimi code /
+codebuddy / qoder / qoder-cn) report whether
 they are **waiting for user input** or **busy**, so an external visualiser /
 monitor does not have to guess from screen content.
 
@@ -15,7 +15,7 @@ tmux-agent-state/
   tmux-agent-state.tmux  TPM entry point (delegates to statusbar/statusbar.tmux)
   tsconfig.json        type-check setup for the adapters
   adapters/
-    agent-state.sh     shared hook adapter: writes @agent-state from claude/codex events
+    agent-state.sh     shared hook adapter: writes @agent-state from hook events
     claude-hooks.json  claude hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PostToolUseFailure/PermissionRequest/Elicitation/ElicitationResult/
                        Notification/Stop/StopFailure/SessionEnd)
@@ -26,8 +26,13 @@ tmux-agent-state/
     kimi-hooks.toml    kimi hook template (SessionStart/UserPromptSubmit/PreToolUse/PostToolUse/
                        PostToolUseFailure/PermissionRequest/PermissionResult/Stop/StopFailure/
                        Interrupt/SessionEnd)
-    install.sh         merges the hooks into ~/.claude/settings.json / ~/.codex/hooks.json /
-                       ~/.kimi-code/config.toml
+    codebuddy-hooks.json / qoder-hooks.json / qoder-cn-hooks.json
+                       Claude-compatible JSON hook templates (SessionStart/UserPromptSubmit/
+                       PreToolUse/PostToolUse/PostToolUseFailure/PermissionRequest/Elicitation/
+                       ElicitationResult/Notification/Stop/StopFailure/SessionEnd)
+    install.sh         merges hooks into ~/.claude/settings.json, ~/.codex/hooks.json,
+                       ~/.kimi-code/config.toml, ~/.codebuddy/settings.json,
+                       ~/.qoder/settings.json and ~/.qoder-cn/settings.json
     pi/
       agent-state.ts   pi extension (implemented)
       question.ts      optional example: asking reporting for blocking tools
@@ -58,9 +63,9 @@ explicitly for everything else (no heuristics).
 
 ## Install
 
-Requirements: tmux ≥ 3.0, python3 (status segment + chips), and
-[pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) for the
-agent adapter (the status bar runs without pi, but then has nothing to track).
+Requirements: tmux ≥ 3.0, python3 (status segment + chips), and any supported
+agent CLI you want to track. [pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
+is needed only for the pi extension; the hook-based adapters do not depend on it.
 
 ```sh
 git clone https://github.com/cyzlmh/tmux-agent-state.git ~/tmux-agent-state
@@ -73,8 +78,10 @@ tmux run-shell ~/tmux-agent-state/statusbar/statusbar.tmux
 ln -s ~/tmux-agent-state/adapters/pi/agent-state.ts ~/.pi/agent/extensions/agent-state.ts
 # optional: also symlink question.ts for asking reporting (see adapters/pi/README.md)
 
-# 3. claude/codex/kimi adapters (optional): merges hooks into their configs
-~/tmux-agent-state/adapters/install.sh          # all, or: install.sh claude | codex | kimi
+# 3. hook-based adapters (optional): merge hooks into their configs
+~/tmux-agent-state/adapters/install.sh          # all, or one of:
+# install.sh claude | codex | kimi | codebuddy | qoder | qoder-cn
+# CodeBuddy: review the externally added hooks in /hooks if prompted.
 # Codex shared daemon (0.161+): launch through codex-tmux (native events, no hook trust needed)
 ~/tmux-agent-state/adapters/codex-tmux
 # optional shell alias (put in ~/.zshrc or ~/.bashrc):
@@ -229,6 +236,9 @@ Principles:
 | claude  | hooks (`adapters/claude-hooks.json`) | done — `adapters/install.sh claude` |
 | codex   | native JSON-RPC launcher + local hooks | shared daemon: launch via `codex-tmux`; local mode: install hooks and trust in `/hooks` |
 | kimi    | hooks (`adapters/kimi-hooks.toml`) | done — `adapters/install.sh kimi` |
+| codebuddy | hooks (`adapters/codebuddy-hooks.json`) | done — `adapters/install.sh codebuddy`; review in `/hooks` if prompted |
+| qoder   | hooks (`adapters/qoder-hooks.json`) | done — `adapters/install.sh qoder` |
+| qoder-cn | hooks (`adapters/qoder-cn-hooks.json`) | done — `adapters/install.sh qoder-cn` |
 | zsh     | none (`pane_current_command` ⇒ waiting, exact) | n/a |
 
 Adapter templates carry a version marker (`--adapter-version N`). It is ignored
@@ -236,6 +246,28 @@ at runtime; `install.sh --check` uses it to tell you that a config written by an
 older template needs re-installing. Re-running `install.sh` rewrites the hooks
 in place (idempotent) — for codex, run `/hooks` afterwards to trust the new
 definitions, since codex pins a hash per hook.
+
+### CodeBuddy / Qoder / Qoder CN
+
+These three CLIs expose Claude-compatible JSON hooks and use the same event
+mapping as the Claude adapter. The installer writes user-level hooks to
+`~/.codebuddy/settings.json`, `~/.qoder/settings.json` and
+`~/.qoder-cn/settings.json` respectively, preserving unrelated settings and
+hooks. Qoder applies config edits immediately; CodeBuddy may ask you to review
+external hook changes in its `/hooks` panel.
+
+Subagent payloads (`agent_id`) are ignored and notifications are restricted to
+needs-input types, just like Claude. None of these CLIs documents an `Interrupt`
+hook, so the templates do not subscribe to one. CodeBuddy explicitly documents
+that `Stop` does not fire after a user interruption; in that case its pane stays
+`busy` until the next lifecycle event. Qoder versions with the same upstream
+gap have the same limitation.
+
+Lifecycle hooks were smoke-tested with CodeBuddy 2.184.0, Qoder 1.1.89 and
+Qoder CN 1.1.81. CodeBuddy 2.184.0 did not emit `SessionEnd` after a
+`--print` / `-p` run, so a one-shot headless invocation can leave its last
+state behind; once its process exits and the shell returns, the reader reports
+that residue as `stale` rather than a live state.
 
 ### Codex shared daemon (0.161+)
 

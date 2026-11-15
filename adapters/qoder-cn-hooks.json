@@ -1,0 +1,124 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail ready --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail asking --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail asking --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "ElicitationResult": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state busy --detail working --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail asking --guard --notify --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail done --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --agent qoder-cn --state waiting --detail done --guard --adapter-version 1"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__AGENT_STATE__ --clear --adapter-version 1"
+          }
+        ]
+      }
+    ]
+  }
+}

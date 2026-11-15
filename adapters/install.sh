@@ -1,27 +1,33 @@
 #!/usr/bin/env bash
 # Install the tmux-agent-state agent adapters into the hook configs:
-#   ~/.claude/settings.json   (claude code)
-#   ~/.codex/hooks.json       (codex)
-#   ~/.kimi-code/config.toml  (kimi code)
+#   ~/.claude/settings.json    (claude code)
+#   ~/.codex/hooks.json        (codex)
+#   ~/.kimi-code/config.toml   (kimi code)
+#   ~/.codebuddy/settings.json (codebuddy)
+#   ~/.qoder/settings.json     (qoder)
+#   ~/.qoder-cn/settings.json  (qoder-cn)
 #
-# claude/codex: merges the hooks key — existing hooks of other events are
+# JSON-based agents: merges the hooks key — existing hooks of other events are
 # preserved; for our events, previous tmux-agent-state entries are replaced
 # (idempotent, no duplicates).
 # kimi: config.toml is TOML, so the hooks are appended as a marked block;
 # re-running replaces the block (idempotent), the rest of the file is kept.
 #
-#   ./install.sh            all three
-#   ./install.sh claude     only claude
-#   ./install.sh codex      only codex
-#   ./install.sh kimi       only kimi
+#   ./install.sh              all agents
+#   ./install.sh claude       only claude
+#   ./install.sh codex        only codex
+#   ./install.sh kimi         only kimi
+#   ./install.sh codebuddy    only codebuddy
+#   ./install.sh qoder        only qoder
+#   ./install.sh qoder-cn     only qoder-cn
 #
-#   ./install.sh --check [claude|codex|kimi]
+#   ./install.sh --check [claude|codex|kimi|codebuddy|qoder|qoder-cn]
 #       report whether the installed wiring matches the current templates
 #       (no writes; exit 1 when anything is missing or outdated — re-run
 #       install.sh to upgrade)
 #
-# After installing codex hooks, run /hooks inside codex and trust the
-# tmux-agent-state hook definitions before they can run.
+# After installing codex/codebuddy hooks, run /hooks inside the agent and
+# review/trust the tmux-agent-state definitions where the CLI requires it.
 
 set -euo pipefail
 
@@ -30,6 +36,9 @@ AGENT_STATE="$REPO_DIR/adapters/agent-state.sh"
 CLAUDE_TEMPLATE="$REPO_DIR/adapters/claude-hooks.json"
 CODEX_TEMPLATE="$REPO_DIR/adapters/codex-hooks.json"
 KIMI_TEMPLATE="$REPO_DIR/adapters/kimi-hooks.toml"
+CODEBUDDY_TEMPLATE="$REPO_DIR/adapters/codebuddy-hooks.json"
+QODER_TEMPLATE="$REPO_DIR/adapters/qoder-hooks.json"
+QODER_CN_TEMPLATE="$REPO_DIR/adapters/qoder-cn-hooks.json"
 
 install_hooks() {  # $1 target-file $2 template-file $3 agent-name
     local target="$1" template="$2" agent="$3"
@@ -214,6 +223,9 @@ step() {  # $1 agent-name; check mode reports drift, install mode rewrites
             claude) check_hooks "$HOME/.claude/settings.json" "$CLAUDE_TEMPLATE" "claude" || status=1 ;;
             codex)  check_hooks "$HOME/.codex/hooks.json" "$CODEX_TEMPLATE" "codex" || status=1 ;;
             kimi)   check_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE" || status=1 ;;
+            codebuddy) check_hooks "$HOME/.codebuddy/settings.json" "$CODEBUDDY_TEMPLATE" "codebuddy" || status=1 ;;
+            qoder) check_hooks "$HOME/.qoder/settings.json" "$QODER_TEMPLATE" "qoder" || status=1 ;;
+            qoder-cn) check_hooks "$HOME/.qoder-cn/settings.json" "$QODER_CN_TEMPLATE" "qoder-cn" || status=1 ;;
         esac
         return
     fi
@@ -226,20 +238,29 @@ step() {  # $1 agent-name; check mode reports drift, install mode rewrites
             echo "codex: existing plain-codex TUIs must be reopened with codex-tmux; no daemon restart needed."
             ;;
         kimi) install_kimi "$HOME/.kimi-code/config.toml" "$KIMI_TEMPLATE" ;;
+        codebuddy)
+            install_hooks "$HOME/.codebuddy/settings.json" "$CODEBUDDY_TEMPLATE" "codebuddy"
+            echo "codebuddy: review the externally added hooks in /hooks if CodeBuddy asks for approval."
+            ;;
+        qoder) install_hooks "$HOME/.qoder/settings.json" "$QODER_TEMPLATE" "qoder" ;;
+        qoder-cn) install_hooks "$HOME/.qoder-cn/settings.json" "$QODER_CN_TEMPLATE" "qoder-cn" ;;
     esac
 }
 
 case "${1:-}" in
-    claude|codex|kimi)
+    claude|codex|kimi|codebuddy|qoder|qoder-cn)
         step "$1"
         ;;
     "")
         step claude
         step codex
         step kimi
+        step codebuddy
+        step qoder
+        step qoder-cn
         ;;
     *)
-        echo "usage: install.sh [--check] [claude|codex|kimi]" >&2
+        echo "usage: install.sh [--check] [claude|codex|kimi|codebuddy|qoder|qoder-cn]" >&2
         exit 1
         ;;
 esac

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Integration tests: the hook-based adapter (adapters/agent-state.sh), the
-# claude/codex/kimi hook templates, and install.sh merge behaviour.
+# JSON/TOML hook templates, and install.sh merge behaviour.
 
 set -euo pipefail
 
@@ -97,7 +97,7 @@ echo "$(get_state "$P2")" | grep -q '"tool":"sleep"' || fail "local Codex wrote 
 pass "Codex v4 local hooks ignore wrong live TMUX_PANE"
 
 # 5. templates: valid JSON, all expected events, placeholder replaced by install
-for tmpl in claude codex; do
+for tmpl in claude codex codebuddy qoder qoder-cn; do
     python3 - "$ROOT_DIR/adapters/$tmpl-hooks.json" "$tmpl" <<'EOF' || fail "template check failed"
 import json, sys
 path, name = sys.argv[1:3]
@@ -105,7 +105,7 @@ d = json.load(open(path))
 events = set(d["hooks"].keys())
 expected = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
             "PermissionRequest", "Stop", "SessionEnd"}
-if name == "claude":
+if name in {"claude", "codebuddy", "qoder", "qoder-cn"}:
     expected.update({"Elicitation", "ElicitationResult", "Notification",
                      "PostToolUseFailure", "StopFailure"})
 if name == "codex":
@@ -116,7 +116,8 @@ if name == "codex":
     # would be dead config.
     expected.update({"Interrupt"})
 assert events == expected, f"{name}: events {events ^ expected}"
-version = {"claude": "2", "codex": "4"}[name]
+version = {"claude": "2", "codex": "4", "codebuddy": "1",
+           "qoder": "1", "qoder-cn": "1"}[name]
 for ev, groups in d["hooks"].items():
     for g in groups:
         cmd = g["hooks"][0]["command"]
@@ -125,12 +126,12 @@ for ev, groups in d["hooks"].items():
         assert f"--adapter-version {version}" in cmd, f"{name}/{ev}: version marker missing: {cmd}"
         if name == "codex":
             assert "--codex-target" in cmd, f"codex/{ev}: explicit session routing missing: {cmd}"
-        if name == "claude" and "--clear" not in cmd:
-            assert "--guard" in cmd, f"claude/{ev}: subagent guard missing: {cmd}"
+        if name in {"claude", "codebuddy", "qoder", "qoder-cn"} and "--clear" not in cmd:
+            assert "--guard" in cmd, f"{name}/{ev}: subagent guard missing: {cmd}"
         # Notification carries many unrelated types; only the needs-input ones
         # may be reported, so the filter must be on.
         if ev == "Notification":
-            assert "--notify" in cmd, f"claude/{ev}: notification filter missing: {cmd}"
+            assert "--notify" in cmd, f"{name}/{ev}: notification filter missing: {cmd}"
 EOF
     pass "template $tmpl"
 done
@@ -277,6 +278,43 @@ stops = json.dumps(d["hooks"]["Stop"])
 assert "--adapter-version 4" in stops and "/old/" not in stops, f"Stop not refreshed to v4: {stops}"
 EOF
 pass "install drops our entries for removed events"
+
+# 6f. Claude-compatible JSON adapters install into their own config files,
+#     preserve unrelated hooks, and are idempotent / checkable.
+for agent in codebuddy qoder qoder-cn; do
+    case "$agent" in
+        codebuddy) config_dir=.codebuddy ;;
+        qoder) config_dir=.qoder ;;
+        qoder-cn) config_dir=.qoder-cn ;;
+    esac
+    target="$FAKE_HOME/$config_dir/settings.json"
+    mkdir -p "$(dirname "$target")"
+    printf '{"theme":"dark","hooks":{"OtherEvent":[{"hooks":[{"type":"command","command":"echo keep"}]}]}}' > "$target"
+    HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" "$agent" >/dev/null
+    HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" "$agent" >/dev/null
+    python3 - "$target" "$agent" <<'EOF' || fail "$agent install merge/idempotency failed"
+import json, sys
+path, agent = sys.argv[1:3]
+d = json.load(open(path))
+assert d["theme"] == "dark", "unrelated setting lost"
+assert "OtherEvent" in d["hooks"], "unrelated hook lost"
+expected = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+            "PostToolUseFailure", "PermissionRequest", "Elicitation",
+            "ElicitationResult", "Notification", "Stop", "StopFailure", "SessionEnd"}
+assert set(d["hooks"]) == expected | {"OtherEvent"}
+for ev, groups in d["hooks"].items():
+    ours = [g for g in groups if "agent-state.sh" in json.dumps(g)]
+    assert len(ours) == (0 if ev == "OtherEvent" else 1), f"{ev}: duplicate/missing hooks"
+    for group in ours:
+        command = group["hooks"][0]["command"]
+        assert "__AGENT_STATE__" not in command
+        assert "--adapter-version 1" in command
+        assert ev == "SessionEnd" or f"--agent {agent}" in command
+EOF
+    out=$(HOME="$FAKE_HOME" bash "$ROOT_DIR/adapters/install.sh" --check "$agent")
+    echo "$out" | grep -q 'up to date (adapter v1)' || fail "$agent --check: $out"
+done
+pass "codebuddy/qoder/qoder-cn install merge + idempotent + check"
 
 # 6b. install.sh kimi: appends a marked block to config.toml, preserves the
 #     user's TOML (existing hooks included), idempotent on re-run
